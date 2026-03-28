@@ -335,17 +335,85 @@ def check_position_exits(state, client, live=False):
         state["open_positions"] = still_open
 
 
+def fetch_live_kelly():
+    """Fetch live Kelly % per coin from Apps Script.
+
+    Returns dict of {symbol: kelly_pct} where kelly is 0-1.
+    Falls back to backtest Kelly from coin_results file.
+    """
+    kelly_map = {}
+
+    # Try cloud first
+    if APPS_SCRIPT_URL:
+        try:
+            r = requests.get(APPS_SCRIPT_URL, params={
+                "action": "get_coins",
+            }, timeout=10)
+            data = r.json()
+            if isinstance(data, dict) and data.get("data"):
+                for c in data["data"]:
+                    coin = c.get("Coin", "").lower()
+                    # Use live Kelly if enough trades,
+                    # otherwise fall back to backtest
+                    live_k = c.get("Live_Kelly", 0)
+                    bt_k = c.get("BT_Kelly", 0)
+                    live_t = c.get("Live_Trades", 0)
+                    kelly_map[coin] = (
+                        live_k if live_t >= 10 else bt_k)
+                if kelly_map:
+                    log.info(
+                        f"  Loaded Kelly for "
+                        f"{len(kelly_map)} coins")
+                    return kelly_map
+        except Exception as e:
+            log.warning(f"Kelly fetch failed: {e}")
+
+    # Fallback: load from local backtest results
+    results_file = os.path.join(
+        config.DATA_DIR, "coin_results_7_12.json")
+    if os.path.exists(results_file):
+        with open(results_file) as f:
+            results = json.load(f)
+        for r in results:
+            kelly_map[r["coin"]] = r.get("kelly", 0)
+
+    return kelly_map
+
+
+# Kelly fraction cap (never bet more than half-Kelly
+# for safety — "fractional Kelly")
+KELLY_FRACTION = 0.5
+KELLY_MIN = 0.005   # minimum 0.5% of account per coin
+KELLY_MAX = 0.05    # maximum 5% of account per coin
+
+
 def calculate_position_size(balance, n_trade_coins, price,
-                            min_qty, precision):
-    """Equal $ allocation per coin."""
+                            min_qty, precision,
+                            kelly_pct=None):
+    """Kelly-weighted position sizing.
+
+    If kelly_pct is provided, size is proportional to
+    Kelly %. Otherwise falls back to equal allocation.
+
+    Args:
+        kelly_pct: Kelly fraction 0-1 (e.g. 0.15 = 15%)
+    """
     if n_trade_coins == 0 or price == 0:
         return min_qty
-    # Allocate balance equally across tradeable coins
-    alloc = balance * LEVERAGE / n_trade_coins
+
+    if kelly_pct is not None and kelly_pct > 0:
+        # Fractional Kelly: bet kelly_pct * fraction
+        # of bankroll on this coin
+        frac = kelly_pct * KELLY_FRACTION
+        frac = max(KELLY_MIN, min(KELLY_MAX, frac))
+        alloc = balance * LEVERAGE * frac
+    else:
+        # Equal allocation fallback
+        alloc = balance * LEVERAGE / n_trade_coins
+
     if alloc < MIN_POSITION_USD:
         alloc = MIN_POSITION_USD
     qty = alloc / price
-    # Round to precision
     if precision > 0:
         qty = round(qty, precision)
     else:

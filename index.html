@@ -675,14 +675,14 @@ a { color: var(--accent); text-decoration: none; }
           value="100">
       </div>
       <div>
-        <label>Avg per Trade (%)</label>
+        <label>Avg per Signal (%)</label>
         <input type="number" id="projAvg"
           value="0.616" step="0.001">
       </div>
       <div>
-        <label>Trades / Month</label>
+        <label>Signals / Month</label>
         <input type="number" id="projTpm"
-          value="150">
+          value="30">
       </div>
       <div>
         <label>Leverage</label>
@@ -1259,23 +1259,26 @@ function calcProjection() {
     document.getElementById('projStart').value);
   var avg = parseFloat(
     document.getElementById('projAvg').value);
-  var tpm = parseInt(
+  var spm = parseInt(
     document.getElementById('projTpm').value);
   var lev = parseFloat(
     document.getElementById('projLev').value);
 
   if (isNaN(start) || isNaN(avg) ||
-    isNaN(tpm) || isNaN(lev)) {
+    isNaN(spm) || isNaN(lev)) {
     showToast('Enter valid numbers');
     return;
   }
 
-  // Effective avg per trade with leverage
-  var effAvg = avg * lev;
+  // Each signal = one compounding event.
+  // Avg gain per signal on your whole account
+  // (the 0.616% already accounts for spreading
+  // across all coins — it's the net account move)
+  var gainPerSignal = avg * lev / 100;
 
   var h = '<table class="proj-table">';
   h += '<tr><th>Period</th><th>Capital</th>'
-    + '<th>Gain</th><th>Trades</th></tr>';
+    + '<th>Gain</th><th>Signals</th></tr>';
 
   var periods = [
     { m: 1, label: '1 Month' },
@@ -1287,19 +1290,38 @@ function calcProjection() {
 
   for (var i = 0; i < periods.length; i++) {
     var p = periods[i];
-    var totalTrades = tpm * p.m;
-    var capital = start;
-    for (var t = 0; t < totalTrades; t++) {
-      capital += capital * (effAvg / 100);
-    }
+    var totalSigs = spm * p.m;
+    // Compound: capital × (1 + gain)^n
+    var capital = start
+      * Math.pow(1 + gainPerSignal, totalSigs);
     var gain = ((capital - start) / start * 100);
+
+    // Format nicely
+    var capStr;
+    if (capital >= 1e9)
+      capStr = '$' + (capital/1e9).toFixed(2) + 'B';
+    else if (capital >= 1e6)
+      capStr = '$' + (capital/1e6).toFixed(2) + 'M';
+    else if (capital >= 1e3)
+      capStr = '$' + (capital/1e3).toFixed(1) + 'K';
+    else
+      capStr = '$' + capital.toFixed(2);
+
+    var gainStr;
+    if (gain >= 1e6)
+      gainStr = '+' + (gain/1e6).toFixed(1) + 'M%';
+    else if (gain >= 1e3)
+      gainStr = '+' + (gain/1e3).toFixed(1) + 'K%';
+    else
+      gainStr = '+' + gain.toFixed(1) + '%';
+
     h += '<tr>';
     h += '<td>' + p.label + '</td>';
-    h += '<td class="pnl-pos">$'
-      + capital.toFixed(2) + '</td>';
-    h += '<td class="pnl-pos">+'
-      + gain.toFixed(0) + '%</td>';
-    h += '<td>' + totalTrades + '</td>';
+    h += '<td class="pnl-pos">'
+      + capStr + '</td>';
+    h += '<td class="pnl-pos">'
+      + gainStr + '</td>';
+    h += '<td>' + totalSigs + '</td>';
     h += '</tr>';
   }
   h += '</table>';

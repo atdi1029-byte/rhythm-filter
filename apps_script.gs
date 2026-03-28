@@ -135,11 +135,15 @@ function initCoinStats_(jsonStr) {
   var sheet = getOrCreateSheet_('CoinStats');
   sheet.clear();
 
-  // Header
-  sheet.getRange(1, 1, 1, 13).setValues([[
+  // Header — 18 columns
+  // A-H: backtest data, I-R: live running stats
+  sheet.getRange(1, 1, 1, 18).setValues([[
     'Coin', 'Status', 'BT_WR', 'BT_PnL', 'BT_AvgPnL', 'BT_Kelly',
-    'BT_MaxLS', 'BT_Trades', 'Live_Trades', 'Live_Wins',
-    'Live_PnL', 'Live_WR', 'Live_AvgPnL'
+    'BT_MaxLS', 'BT_Trades',
+    'Live_Trades', 'Live_Wins', 'Live_Losses',
+    'Live_PnL', 'Live_WR', 'Live_AvgPnL',
+    'Live_AvgWin', 'Live_AvgLoss', 'Live_Kelly',
+    'Live_WinSum'
   ]]);
 
   // Populate from backtest data
@@ -150,12 +154,15 @@ function initCoinStats_(jsonStr) {
       c.coin, 'active',
       c.wr, c.pnl, c.avg_pnl, c.kelly,
       c.max_loss_streak, c.trades,
-      0, 0, 0, 0, 0     // live stats start at 0
+      0, 0, 0,          // live trades, wins, losses
+      0, 0, 0,          // live pnl, wr, avg pnl
+      0, 0, 0,          // avg win, avg loss, kelly
+      0                  // win sum (for avg win calc)
     ]);
   }
 
   if (rows.length > 0) {
-    sheet.getRange(2, 1, rows.length, 13).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 18).setValues(rows);
   }
 
   return { status: 'success', count: rows.length };
@@ -200,16 +207,47 @@ function updateCoinRunningStats_(symbol, pnlPct, outcome) {
 
   if (rowIdx === -1) return;
 
-  // Read current live stats (cols I-M = 9-13)
-  var range = sheet.getRange(rowIdx, 9, 1, 5);
-  var vals = range.getValues()[0];
-  var liveTrades = vals[0] + 1;
-  var liveWins = vals[1] + (pnlPct > 0 ? 1 : 0);
-  var livePnl = vals[2] + pnlPct;
+  // Read current live stats (cols I-R = 9-18)
+  var range = sheet.getRange(rowIdx, 9, 1, 10);
+  var v = range.getValues()[0];
+  // v[0]=trades, v[1]=wins, v[2]=losses, v[3]=pnl,
+  // v[4]=wr, v[5]=avgPnl, v[6]=avgWin, v[7]=avgLoss,
+  // v[8]=kelly, v[9]=winSum
+
+  var isWin = pnlPct > 0;
+  var liveTrades = v[0] + 1;
+  var liveWins = v[1] + (isWin ? 1 : 0);
+  var liveLosses = v[2] + (isWin ? 0 : 1);
+  var livePnl = v[3] + pnlPct;
   var liveWr = liveTrades > 0 ? (liveWins / liveTrades * 100) : 0;
   var liveAvg = liveTrades > 0 ? (livePnl / liveTrades) : 0;
 
-  range.setValues([[liveTrades, liveWins, livePnl, liveWr, liveAvg]]);
+  // Track win sum for avg win calc
+  var winSum = v[9] + (isWin ? pnlPct : 0);
+  // Avg loss = (total pnl - win sum) / losses
+  var lossSum = livePnl - winSum;
+
+  var avgWin = liveWins > 0 ? (winSum / liveWins) : 0;
+  var avgLoss = liveLosses > 0 ? Math.abs(lossSum / liveLosses) : 0;
+
+  // Kelly criterion: f* = (b*p - q) / b
+  // b = avgWin / avgLoss (reward/risk ratio)
+  // p = win rate, q = 1-p
+  var liveKelly = 0;
+  if (avgLoss > 0 && liveTrades >= 5) {
+    var b = avgWin / avgLoss;
+    var p = liveWins / liveTrades;
+    var q = 1 - p;
+    liveKelly = (b * p - q) / b;
+    if (liveKelly < 0) liveKelly = 0;
+    if (liveKelly > 1) liveKelly = 1;
+  }
+
+  range.setValues([[
+    liveTrades, liveWins, liveLosses,
+    livePnl, liveWr, liveAvg,
+    avgWin, avgLoss, liveKelly, winSum
+  ]]);
 }
 
 function updateCoinStatus_(params) {
