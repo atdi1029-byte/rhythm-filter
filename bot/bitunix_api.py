@@ -104,6 +104,27 @@ class BitunixClient:
             "marginCoin": "USDT",
         })
 
+    def get_balance(self):
+        """Get account balance (USDT available)."""
+        return self._get("/api/v1/futures/account/balance",
+                         {"marginCoin": "USDT"})
+
+    def get_positions(self, symbol=None):
+        """Get open positions."""
+        params = {}
+        if symbol:
+            params["symbol"] = symbol
+        return self._get("/api/v1/futures/position/get_pending_positions",
+                         params)
+
+    def get_history_positions(self, symbol=None, page=1, page_size=50):
+        """Get closed position history."""
+        params = {"page": str(page), "pageSize": str(page_size)}
+        if symbol:
+            params["symbol"] = symbol
+        return self._get(
+            "/api/v1/futures/position/get_history_positions", params)
+
     # === TRADING ===
 
     def place_order(self, symbol, side, qty, order_type="MARKET",
