@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+  content="width=device-width,initial-scale=1,
+  maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0a0a12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style"
+  content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>RhythmFilter</title>
+<style>
+:root {
+  --bg-deep: #0a0a12;
+  --bg-dark: #10101a;
+  --bg-card: #161622;
+  --bg-card-hover: #1e1e30;
+  --border: #2a2a3a;
+  --border-light: #3a3a50;
+  --text: #c8c8d8;
+  --text-dim: #6a6a80;
+  --text-bright: #f0f0ff;
+  --accent: #6ecfcf;
+  --accent-dim: #4a9f9f;
+  --accent-glow: rgba(110,207,207,0.3);
+  --green: #4caf50;
+  --green-bright: #66ff66;
+  --green-dim: #1a3a1a;
+  --red: #ef5350;
+  --red-bright: #ff6b6b;
+  --red-dim: #3a1a1a;
+  --yellow: #ffb74d;
+  --yellow-dim: #3a2a10;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, 'SF Mono', 'Fira Code',
+    'Courier New', monospace;
+  background: var(--bg-deep);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 0.75rem;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+
+/* Header */
+.header {
+  text-align: center;
+  padding: 1rem 0 0.5rem;
+  position: relative;
+}
+.header h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.header .subtitle {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 0.25rem;
+}
+.status-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+  background: var(--text-dim);
+  vertical-align: middle;
+}
+.status-dot.synced { background: var(--green); }
+.status-dot.stale { background: var(--yellow); }
+.status-dot.error { background: var(--red); }
+.status-dot.loading {
+  background: var(--accent);
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-bright);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.card-header .badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  background: var(--accent-dim);
+  color: var(--text-bright);
+}
+.card.collapsed .card-body { display: none; }
+.card-header .toggle {
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+/* Pokemon Level */
+.level-section {
+  margin-bottom: 0.75rem;
+  display: none;
+}
+.level-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.level-header:hover {
+  border-color: var(--accent-dim);
+}
+.level-header.evolve {
+  animation: evolve 1.2s ease;
+  border-color: var(--accent);
+  box-shadow: 0 0 30px var(--accent-glow);
+}
+@keyframes evolve {
+  0% { transform:scale(1);
+    filter:brightness(1) hue-rotate(0deg); }
+  30% { transform:scale(1.05);
+    filter:brightness(2) hue-rotate(30deg); }
+  60% { transform:scale(0.97);
+    filter:brightness(1.5) hue-rotate(-10deg); }
+  100% { transform:scale(1);
+    filter:brightness(1) hue-rotate(0deg); }
+}
+.level-sprite {
+  width: 80px; height: 80px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+}
+.level-info { flex: 1; }
+.level-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+.level-num {
+  font-size: 0.75rem;
+  color: var(--accent);
+  margin-top: 0.15rem;
+}
+.level-count {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  margin-top: 0.1rem;
+}
+.level-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 0.4rem;
+}
+.level-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+  background: linear-gradient(90deg,
+    var(--accent-dim), var(--accent));
+}
+
+/* Quick Stats */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.stat-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.5rem;
+  text-align: center;
+}
+.stat-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+.stat-val.green { color: var(--green); }
+.stat-val.red { color: var(--red); }
+.stat-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-top: 0.2rem;
+  letter-spacing: 0.5px;
+}
+
+/* System Status */
+.gauge-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: center;
+}
+.gauge-container {
+  position: relative;
+  width: 120px; height: 120px;
+}
+.gauge-container svg { width: 100%; height: 100%; }
+.gauge-label {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+.gauge-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+.gauge-sub {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+.status-info {
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.status-info div { margin-bottom: 0.4rem; }
+.status-info .label {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+}
+.signal-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.signal-badge.waiting {
+  background: var(--border);
+  color: var(--text-dim);
+}
+.signal-badge.armed {
+  background: var(--yellow-dim);
+  color: var(--yellow);
+}
+.signal-badge.fired {
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+/* Positions Table */
+.pos-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+.pos-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  padding: 0.4rem 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+.pos-table td {
+  padding: 0.5rem 0.3rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.pos-table tr:hover {
+  background: var(--bg-card-hover);
+}
+.coin-icon {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 0.3rem;
+}
+.coin-fallback {
+  display: inline-flex;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--border);
+  align-items: center;
+  justify-content: center;
+  font-size: 0.5rem;
+  color: var(--text-dim);
+  margin-right: 0.3rem;
+  vertical-align: middle;
+}
+.pnl-pos { color: var(--green); }
+.pnl-neg { color: var(--red); }
+.empty-state {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 2rem 0;
+  font-size: 0.8rem;
+}
+
+/* Coin Roster Grid */
+.coin-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
+}
+.coin-card {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.6rem;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.coin-card:hover {
+  background: var(--bg-card-hover);
+  border-left-color: var(--text-bright);
+}
+.coin-card.probation {
+  border-left-color: var(--yellow);
+}
+.coin-card.cut {
+  border-left-color: var(--red);
+  opacity: 0.5;
+}
+.coin-card .cc-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+.coin-card .cc-sym {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--text-bright);
+}
+.coin-card .cc-status {
+  font-size: 0.55rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+.cc-status.active {
+  background: var(--green-dim);
+  color: var(--green);
+}
+.cc-status.probation {
+  background: var(--yellow-dim);
+  color: var(--yellow);
+}
+.cc-status.cut {
+  background: var(--red-dim);
+  color: var(--red);
+}
+.coin-card .cc-stats {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.15rem;
+}
+.coin-card .cc-stats span {
+  white-space: nowrap;
+}
+
+/* Projector */
+.proj-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.proj-inputs label {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  display: block;
+  margin-bottom: 0.2rem;
+}
+.proj-inputs input {
+  width: 100%;
+  padding: 0.4rem;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 0.8rem;
+}
+.proj-inputs input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.proj-btn {
+  grid-column: span 2;
+  padding: 0.5rem;
+  background: var(--accent-dim);
+  border: none;
+  border-radius: 6px;
+  color: var(--text-bright);
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.proj-btn:hover { background: var(--accent); }
+.proj-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.proj-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  padding: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+.proj-table td {
+  padding: 0.5rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Signal Timeline */
+.signal-item {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+.signal-item:last-child { border-bottom: none; }
+.signal-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: 0.3rem;
+  flex-shrink: 0;
+}
+.signal-time {
+  color: var(--text-dim);
+  font-size: 0.65rem;
+}
+
+/* Roster filter */
+.roster-filter {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+.roster-filter button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-dark);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+}
+.roster-filter button.active {
+  background: var(--accent-dim);
+  color: var(--text-bright);
+  border-color: var(--accent);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  top: 1rem; left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  z-index: 1000;
+  opacity: 0;
+  transition: opacity 0.3s;
+  font-size: 0.8rem;
+  color: var(--text-bright);
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+
+/* Sort buttons */
+.sort-bar {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.6rem;
+}
+.sort-bar button {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.6rem;
+}
+.sort-bar button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (max-width: 480px) {
+  .stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .coin-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .proj-inputs {
+    grid-template-columns: 1fr;
+  }
+  .proj-btn { grid-column: span 1; }
+  .level-sprite { width: 60px; height: 60px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1>RhythmFilter</h1>
+  <div class="subtitle">
+    <span class="status-dot" id="syncDot"></span>
+    <span id="syncLabel">Loading...</span>
+  </div>
+</div>
+
+<!-- Pokemon Level -->
+<div class="level-section" id="levelSection">
+  <div class="level-header" id="levelHeader">
+    <img class="level-sprite" id="levelSprite"
+      src="" alt="">
+    <div class="level-info">
+      <div class="level-name" id="levelName"></div>
+      <div class="level-num" id="levelNum"></div>
+      <div class="level-count" id="levelCount"></div>
+      <div class="level-bar">
+        <div class="level-fill" id="levelFill"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Quick Stats -->
+<div class="stats-row" id="statsRow">
+  <div class="stat-box">
+    <div class="stat-val" id="statPnl">--</div>
+    <div class="stat-label">Total P&L</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-val" id="statWr">--</div>
+    <div class="stat-label">Win Rate</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-val" id="statTrades">--</div>
+    <div class="stat-label">Trades</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-val" id="statAvg">--</div>
+    <div class="stat-label">Avg/Trade</div>
+  </div>
+</div>
+
+<!-- System Status -->
+<div class="card" id="statusCard">
+  <div class="card-header">
+    System Status
+    <span class="toggle"
+      onclick="toggleCard('statusCard')">
+      collapse</span>
+  </div>
+  <div class="card-body">
+    <div class="gauge-row">
+      <div class="gauge-container" id="gaugeWrap">
+        <svg viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="50"
+            fill="none" stroke="#2a2a3a"
+            stroke-width="8"/>
+          <circle cx="60" cy="60" r="50"
+            fill="none" stroke="#6ecfcf"
+            stroke-width="8"
+            stroke-dasharray="314"
+            stroke-dashoffset="157"
+            stroke-linecap="round"
+            id="gaugeArc"
+            transform="rotate(-90 60 60)"/>
+        </svg>
+        <div class="gauge-label">
+          <div class="gauge-value"
+            id="gaugeVal">0.00</div>
+          <div class="gauge-sub">BREATH</div>
+        </div>
+      </div>
+      <div class="status-info">
+        <div>
+          <span class="label">Signal</span><br>
+          <span class="signal-badge waiting"
+            id="signalBadge">waiting</span>
+        </div>
+        <div>
+          <span class="label">Last Signal</span><br>
+          <span id="lastSignal">--</span>
+        </div>
+        <div>
+          <span class="label">Bar Count</span><br>
+          <span id="barCount">0</span>
+        </div>
+        <div>
+          <span class="label">Last Tick</span><br>
+          <span id="lastTick">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Open Positions -->
+<div class="card" id="posCard">
+  <div class="card-header">
+    Open Positions
+    <span class="badge" id="posCount">0</span>
+  </div>
+  <div class="card-body" id="posBody">
+    <div class="empty-state">No open positions</div>
+  </div>
+</div>
+
+<!-- Compound Growth Projector -->
+<div class="card" id="projCard">
+  <div class="card-header">
+    Growth Projector
+    <span class="toggle"
+      onclick="toggleCard('projCard')">
+      collapse</span>
+  </div>
+  <div class="card-body">
+    <div class="proj-inputs">
+      <div>
+        <label>Starting Capital ($)</label>
+        <input type="number" id="projStart"
+          value="100">
+      </div>
+      <div>
+        <label>Avg per Trade (%)</label>
+        <input type="number" id="projAvg"
+          value="0.616" step="0.001">
+      </div>
+      <div>
+        <label>Trades / Month</label>
+        <input type="number" id="projTpm"
+          value="150">
+      </div>
+      <div>
+        <label>Leverage</label>
+        <input type="number" id="projLev"
+          value="2">
+      </div>
+      <button class="proj-btn"
+        onclick="calcProjection()">
+        Calculate</button>
+    </div>
+    <div id="projResults"></div>
+  </div>
+</div>
+
+<!-- Coin Roster -->
+<div class="card" id="rosterCard">
+  <div class="card-header">
+    Coin Roster
+    <span class="badge" id="rosterCount">144</span>
+  </div>
+  <div class="card-body">
+    <div class="roster-filter" id="rosterFilter">
+      <button class="active"
+        onclick="filterRoster('all',this)">
+        All</button>
+      <button
+        onclick="filterRoster('active',this)">
+        Active</button>
+      <button
+        onclick="filterRoster('probation',this)">
+        Probation</button>
+      <button
+        onclick="filterRoster('cut',this)">
+        Cut</button>
+    </div>
+    <div class="sort-bar">
+      Sort:
+      <button class="active"
+        onclick="sortRoster('pnl',this)">
+        P&L</button>
+      <button
+        onclick="sortRoster('wr',this)">
+        WR%</button>
+      <button
+        onclick="sortRoster('kelly',this)">
+        Kelly</button>
+      <button
+        onclick="sortRoster('trades',this)">
+        Trades</button>
+    </div>
+    <div class="coin-grid" id="coinGrid"></div>
+  </div>
+</div>
+
+<!-- Signal History -->
+<div class="card" id="sigCard">
+  <div class="card-header">
+    Signal History
+    <span class="toggle"
+      onclick="toggleCard('sigCard')">
+      collapse</span>
+  </div>
+  <div class="card-body" id="sigBody">
+    <div class="empty-state">
+      No signals yet</div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// === CONFIG ===
+var APPS_SCRIPT_URL = '';  // Set after deploying
+var CACHE_KEY = 'rf_dashboard_cache';
+var LEVEL_KEY = 'rf_pokemon_level';
+var REFRESH_MS = 30000;
+
+// === STATE ===
+var botState = null;
+var coinStats = null;
+var rosterSort = 'pnl';
+var rosterFilter = 'all';
+
+// === POKEDEX ===
+var POKEDEX = [
+'Bulbasaur','Ivysaur','Venusaur',
+'Charmander','Charmeleon','Charizard',
+'Squirtle','Wartortle','Blastoise',
+'Caterpie','Metapod','Butterfree',
+'Weedle','Kakuna','Beedrill',
+'Pidgey','Pidgeotto','Pidgeot',
+'Rattata','Raticate','Spearow','Fearow',
+'Ekans','Arbok','Pikachu','Raichu',
+'Sandshrew','Sandslash',
+'Nidoran\u2640','Nidorina','Nidoqueen',
+'Nidoran\u2642','Nidorino','Nidoking',
+'Clefairy','Clefable','Vulpix','Ninetales',
+'Jigglypuff','Wigglytuff',
+'Zubat','Golbat','Oddish','Gloom',
+'Vileplume','Paras','Parasect',
+'Venonat','Venomoth','Diglett','Dugtrio',
+'Meowth','Persian','Psyduck','Golduck',
+'Mankey','Primeape','Growlithe','Arcanine',
+'Poliwag','Poliwhirl','Poliwrath',
+'Abra','Kadabra','Alakazam',
+'Machop','Machoke','Machamp',
+'Bellsprout','Weepinbell','Victreebel',
+'Tentacool','Tentacruel',
+'Geodude','Graveler','Golem',
+'Ponyta','Rapidash','Slowpoke','Slowbro',
+'Magnemite','Magneton',
+"Farfetch'd",'Doduo','Dodrio',
+'Seel','Dewgong','Grimer','Muk',
+'Shellder','Cloyster',
+'Gastly','Haunter','Gengar','Onix',
+'Drowzee','Hypno','Krabby','Kingler',
+'Voltorb','Electrode',
+'Exeggcute','Exeggutor',
+'Cubone','Marowak',
+'Hitmonlee','Hitmonchan','Lickitung',
+'Koffing','Weezing','Rhyhorn','Rhydon',
+'Chansey','Tangela','Kangaskhan',
+'Horsea','Seadra','Goldeen','Seaking',
+'Staryu','Starmie','Mr. Mime',
+'Scyther','Jynx','Electabuzz','Magmar',
+'Pinsir','Tauros','Magikarp','Gyarados',
+'Lapras','Ditto','Eevee',
+'Vaporeon','Jolteon','Flareon',
+'Porygon','Omanyte','Omastar',
+'Kabuto','Kabutops','Aerodactyl',
+'Snorlax','Articuno','Zapdos','Moltres',
+'Dratini','Dragonair','Dragonite',
+'Mewtwo','Mew'
+];
+
+function tradesForLevel(lv) {
+  if (lv <= 1) return 0;
+  return Math.round((lv*lv - 1) * 5000 / 22800);
+}
+function getLevelFromTrades(count) {
+  var lv = 1;
+  while (lv < 151 &&
+    tradesForLevel(lv + 1) <= count) lv++;
+  return lv;
+}
+function getLevelInfo(tc) {
+  var lv = getLevelFromTrades(tc);
+  var cur = tradesForLevel(lv);
+  var nxt = tradesForLevel(lv + 1);
+  var prog = nxt > cur
+    ? (tc - cur) / (nxt - cur) : 1;
+  return {
+    level: lv, count: tc,
+    current: cur, next: nxt,
+    progress: prog,
+    name: POKEDEX[lv - 1] || 'Mew',
+    pokeId: lv,
+    isMax: lv >= 151
+  };
+}
+
+// === JSONP ===
+function jsonpFetch(url, cb) {
+  var name = '_rf_' + Date.now() + '_'
+    + Math.random().toString(36).substr(2,5);
+  var s = document.createElement('script');
+  var done = false;
+  window[name] = function(resp) {
+    done = true;
+    delete window[name];
+    s.remove();
+    cb(null, resp);
+  };
+  s.src = url + (url.includes('?')
+    ? '&' : '?') + 'callback=' + name;
+  s.onerror = function() {
+    if (!done) {
+      delete window[name];
+      s.remove();
+      cb('Failed');
+    }
+  };
+  setTimeout(function() {
+    if (!done) {
+      delete window[name];
+      s.remove();
+      cb('Timeout');
+    }
+  }, 15000);
+  document.head.appendChild(s);
+}
+
+// === FETCH DATA ===
+function fetchBotState() {
+  var dot = document.getElementById('syncDot');
+  dot.className = 'status-dot loading';
+
+  if (!APPS_SCRIPT_URL) {
+    // No URL — try localStorage cache
+    var cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      try {
+        var d = JSON.parse(cached);
+        botState = d.botState || null;
+        coinStats = d.coinStats || null;
+      } catch(e) {}
+    }
+    dot.className = 'status-dot stale';
+    document.getElementById('syncLabel')
+      .textContent = 'No sync URL';
+    renderAll();
+    return;
+  }
+
+  jsonpFetch(
+    APPS_SCRIPT_URL + '?action=get_state',
+    function(err, data) {
+      if (err || !data ||
+        data.status !== 'success') {
+        dot.className = 'status-dot error';
+        document.getElementById('syncLabel')
+          .textContent = 'Sync failed';
+        // Try cache
+        var c = localStorage.getItem(CACHE_KEY);
+        if (c) {
+          try {
+            var d = JSON.parse(c);
+            botState = d.botState || null;
+          } catch(e) {}
+        }
+        renderAll();
+        return;
+      }
+      botState = data.data;
+      dot.className = 'status-dot synced';
+      document.getElementById('syncLabel')
+        .textContent = 'Synced';
+      // Cache
+      try {
+        var cache = JSON.parse(
+          localStorage.getItem(CACHE_KEY) || '{}');
+        cache.botState = botState;
+        localStorage.setItem(
+          CACHE_KEY, JSON.stringify(cache));
+      } catch(e) {}
+      renderAll();
+    }
+  );
+}
+
+function fetchCoinStats() {
+  if (!APPS_SCRIPT_URL) {
+    renderCoinRoster();
+    return;
+  }
+  jsonpFetch(
+    APPS_SCRIPT_URL + '?action=get_coins',
+    function(err, data) {
+      if (err || !data ||
+        data.status !== 'success') return;
+      coinStats = data.data;
+      try {
+        var cache = JSON.parse(
+          localStorage.getItem(CACHE_KEY) || '{}');
+        cache.coinStats = coinStats;
+        localStorage.setItem(
+          CACHE_KEY, JSON.stringify(cache));
+      } catch(e) {}
+      renderCoinRoster();
+    }
+  );
+}
+
+// === RENDER ===
+function renderAll() {
+  renderStats();
+  renderStatus();
+  renderPositions();
+  renderSignalHistory();
+  renderLevel();
+  updateProjDefaults();
+}
+
+function renderStats() {
+  if (!botState) return;
+  var pnl = botState.total_pnl || 0;
+  var trades = botState.total_trades || 0;
+  var wins = botState.total_wins || 0;
+  var wr = trades > 0
+    ? (wins / trades * 100) : 0;
+  var avg = trades > 0
+    ? (pnl / trades) : 0;
+
+  var ep = document.getElementById('statPnl');
+  ep.textContent = (pnl >= 0 ? '+' : '')
+    + pnl.toFixed(1) + '%';
+  ep.className = 'stat-val '
+    + (pnl >= 0 ? 'green' : 'red');
+
+  document.getElementById('statWr')
+    .textContent = wr.toFixed(1) + '%';
+  document.getElementById('statTrades')
+    .textContent = trades;
+
+  var ea = document.getElementById('statAvg');
+  ea.textContent = (avg >= 0 ? '+' : '')
+    + avg.toFixed(3) + '%';
+  ea.className = 'stat-val '
+    + (avg >= 0 ? 'green' : 'red');
+}
+
+function renderStatus() {
+  if (!botState) return;
+  var score = botState.breathing_score || 0;
+
+  // Gauge: map score (-20 to +20) to arc
+  var pct = (score + 20) / 40;
+  pct = Math.max(0, Math.min(1, pct));
+  var offset = 314 - (pct * 314);
+  var arc = document.getElementById('gaugeArc');
+  arc.setAttribute('stroke-dashoffset', offset);
+
+  // Color: green if >0, red if <-5, yellow armed
+  var col = '#6a6a80';
+  if (score > 0) col = '#4caf50';
+  else if (score < -5) col = '#ef5350';
+  else if (score < 0) col = '#ffb74d';
+  arc.setAttribute('stroke', col);
+
+  document.getElementById('gaugeVal')
+    .textContent = score.toFixed(2);
+
+  // Signal state
+  var ss = botState.signal_state || 'waiting';
+  var badge = document.getElementById('signalBadge');
+  badge.textContent = ss;
+  badge.className = 'signal-badge ' + ss;
+
+  // Last signal
+  var hist = botState.signal_history || [];
+  if (hist.length > 0) {
+    var last = hist[hist.length - 1];
+    var d = new Date(last.time);
+    document.getElementById('lastSignal')
+      .textContent = d.toLocaleDateString()
+        + ' ' + d.toLocaleTimeString();
+  }
+
+  document.getElementById('barCount')
+    .textContent = botState.bar_count || 0;
+
+  if (botState.last_tick) {
+    var lt = new Date(botState.last_tick);
+    var ago = Math.round(
+      (Date.now() - lt.getTime()) / 60000);
+    document.getElementById('lastTick')
+      .textContent = ago + 'm ago';
+  }
+}
+
+function renderPositions() {
+  var body = document.getElementById('posBody');
+  if (!botState ||
+    !botState.open_positions ||
+    botState.open_positions.length === 0) {
+    body.innerHTML =
+      '<div class="empty-state">'
+      + 'No open positions</div>';
+    document.getElementById('posCount')
+      .textContent = '0';
+    return;
+  }
+  var pos = botState.open_positions;
+  document.getElementById('posCount')
+    .textContent = pos.length;
+
+  var h = '<table class="pos-table">';
+  h += '<tr><th>Coin</th><th>Entry</th>'
+    + '<th>SL</th><th>TP</th><th>Time</th></tr>';
+
+  for (var i = 0; i < pos.length; i++) {
+    var p = pos[i];
+    var sym = (p.symbol || '').replace('USDT','');
+    var icon = coinIconUrl(sym);
+    var t = p.entry_time
+      ? new Date(p.entry_time)
+        .toLocaleDateString() : '';
+
+    h += '<tr>';
+    h += '<td>' + iconHtml(sym, icon)
+      + ' <b>' + esc(sym) + '</b></td>';
+    h += '<td>' + fmt(p.entry_price) + '</td>';
+    h += '<td class="pnl-neg">'
+      + fmt(p.sl_price) + '</td>';
+    h += '<td class="pnl-pos">'
+      + fmt(p.tp_price) + '</td>';
+    h += '<td style="color:var(--text-dim)">'
+      + t + '</td>';
+    h += '</tr>';
+  }
+  h += '</table>';
+  body.innerHTML = h;
+}
+
+function renderSignalHistory() {
+  var body = document.getElementById('sigBody');
+  if (!botState ||
+    !botState.signal_history ||
+    botState.signal_history.length === 0) {
+    body.innerHTML =
+      '<div class="empty-state">'
+      + 'No signals yet</div>';
+    return;
+  }
+  var signals = botState.signal_history.slice()
+    .reverse();
+  var h = '';
+  for (var i = 0; i < signals.length; i++) {
+    var s = signals[i];
+    var d = new Date(s.time);
+    var ts = d.toLocaleDateString() + ' '
+      + d.toLocaleTimeString();
+    h += '<div class="signal-item">';
+    h += '<div class="signal-dot"></div>';
+    h += '<div>';
+    h += '<div><b>' + s.coins_entered
+      + ' coins</b> shorted</div>';
+    h += '<div class="signal-time">'
+      + ts + ' &middot; score: '
+      + (s.breath_score || 0).toFixed(2)
+      + '</div>';
+    h += '</div></div>';
+  }
+  body.innerHTML = h;
+}
+
+function renderCoinRoster() {
+  var grid = document.getElementById('coinGrid');
+  if (!coinStats || coinStats.length === 0) {
+    grid.innerHTML =
+      '<div class="empty-state">'
+      + 'No coin data — deploy Apps Script '
+      + 'and run init_coins</div>';
+    return;
+  }
+  document.getElementById('rosterCount')
+    .textContent = coinStats.length;
+
+  // Filter
+  var filtered = coinStats;
+  if (rosterFilter !== 'all') {
+    filtered = coinStats.filter(function(c) {
+      return (c.Status || 'active') === rosterFilter;
+    });
+  }
+
+  // Sort
+  filtered.sort(function(a, b) {
+    if (rosterSort === 'pnl')
+      return (b.BT_PnL || 0) - (a.BT_PnL || 0);
+    if (rosterSort === 'wr')
+      return (b.BT_WR || 0) - (a.BT_WR || 0);
+    if (rosterSort === 'kelly')
+      return (b.BT_Kelly || 0) - (a.BT_Kelly || 0);
+    if (rosterSort === 'trades')
+      return (b.BT_Trades || 0)
+        - (a.BT_Trades || 0);
+    return 0;
+  });
+
+  var h = '';
+  for (var i = 0; i < filtered.length; i++) {
+    var c = filtered[i];
+    var sym = (c.Coin || '').replace('usdt', '')
+      .toUpperCase();
+    var status = c.Status || 'active';
+    var icon = coinIconUrl(sym.toLowerCase());
+
+    h += '<div class="coin-card ' + status + '">';
+    h += '<div class="cc-top">';
+    h += '<span class="cc-sym">'
+      + iconHtml(sym.toLowerCase(), icon)
+      + ' ' + esc(sym) + '</span>';
+    h += '<span class="cc-status ' + status + '">'
+      + status + '</span>';
+    h += '</div>';
+    h += '<div class="cc-stats">';
+    h += '<span>WR: '
+      + (c.BT_WR || 0).toFixed(0)
+      + '%</span>';
+    h += '<span class="'
+      + ((c.BT_PnL||0) >= 0 ? 'pnl-pos':'pnl-neg')
+      + '">P&L: '
+      + (c.BT_PnL||0).toFixed(0) + '%</span>';
+    h += '<span>Kelly: '
+      + ((c.BT_Kelly||0)*100).toFixed(1)
+      + '%</span>';
+    h += '<span>Trades: '
+      + (c.BT_Trades || 0) + '</span>';
+
+    // Live stats if available
+    if (c.Live_Trades > 0) {
+      h += '<span style="color:var(--accent)">'
+        + 'Live: '
+        + (c.Live_WR || 0).toFixed(0)
+        + '% WR</span>';
+      h += '<span class="'
+        + ((c.Live_PnL||0)>=0
+          ? 'pnl-pos':'pnl-neg')
+        + '">Live: '
+        + (c.Live_PnL||0).toFixed(1)
+        + '%</span>';
+    }
+
+    h += '</div></div>';
+  }
+  grid.innerHTML = h;
+}
+
+function renderLevel() {
+  if (!botState) return;
+  var tc = botState.total_trades || 0;
+  var info = getLevelInfo(tc);
+  var pct = Math.min(100,
+    Math.max(0, info.progress * 100));
+
+  var sec = document.getElementById('levelSection');
+  sec.style.display = '';
+
+  document.getElementById('levelSprite').src =
+    'https://raw.githubusercontent.com/'
+    + 'PokeAPI/sprites/master/sprites/pokemon/'
+    + info.pokeId + '.png';
+  document.getElementById('levelName')
+    .textContent = info.name;
+  document.getElementById('levelNum')
+    .textContent = 'Lv. ' + info.level;
+  document.getElementById('levelCount')
+    .textContent = tc + ' / '
+    + info.next + ' trades';
+  document.getElementById('levelFill')
+    .style.width = pct + '%';
+
+  // Level-up check
+  var stored = parseInt(
+    localStorage.getItem(LEVEL_KEY) || '0');
+  if (info.level > stored && stored > 0) {
+    var hdr = document
+      .getElementById('levelHeader');
+    hdr.classList.add('evolve');
+    showToast(info.name + '! Lv. ' + info.level);
+    setTimeout(function() {
+      hdr.classList.remove('evolve');
+    }, 1500);
+  }
+  localStorage.setItem(LEVEL_KEY,
+    String(info.level));
+}
+
+// === PROJECTOR ===
+function updateProjDefaults() {
+  if (!botState) return;
+  var trades = botState.total_trades || 0;
+  var pnl = botState.total_pnl || 0;
+  if (trades > 0) {
+    document.getElementById('projAvg').value =
+      (pnl / trades).toFixed(3);
+  }
+}
+
+function calcProjection() {
+  var start = parseFloat(
+    document.getElementById('projStart').value);
+  var avg = parseFloat(
+    document.getElementById('projAvg').value);
+  var tpm = parseInt(
+    document.getElementById('projTpm').value);
+  var lev = parseFloat(
+    document.getElementById('projLev').value);
+
+  if (isNaN(start) || isNaN(avg) ||
+    isNaN(tpm) || isNaN(lev)) {
+    showToast('Enter valid numbers');
+    return;
+  }
+
+  // Effective avg per trade with leverage
+  var effAvg = avg * lev;
+
+  var h = '<table class="proj-table">';
+  h += '<tr><th>Period</th><th>Capital</th>'
+    + '<th>Gain</th><th>Trades</th></tr>';
+
+  var periods = [
+    { m: 1, label: '1 Month' },
+    { m: 3, label: '3 Months' },
+    { m: 6, label: '6 Months' },
+    { m: 12, label: '1 Year' },
+    { m: 24, label: '2 Years' },
+  ];
+
+  for (var i = 0; i < periods.length; i++) {
+    var p = periods[i];
+    var totalTrades = tpm * p.m;
+    var capital = start;
+    for (var t = 0; t < totalTrades; t++) {
+      capital += capital * (effAvg / 100);
+    }
+    var gain = ((capital - start) / start * 100);
+    h += '<tr>';
+    h += '<td>' + p.label + '</td>';
+    h += '<td class="pnl-pos">$'
+      + capital.toFixed(2) + '</td>';
+    h += '<td class="pnl-pos">+'
+      + gain.toFixed(0) + '%</td>';
+    h += '<td>' + totalTrades + '</td>';
+    h += '</tr>';
+  }
+  h += '</table>';
+
+  document.getElementById('projResults')
+    .innerHTML = h;
+}
+
+// === HELPERS ===
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+function fmt(v) {
+  v = Number(v);
+  if (v >= 100) return v.toFixed(2);
+  if (v >= 1) return v.toFixed(4);
+  if (v >= 0.01) return v.toFixed(6);
+  return v.toPrecision(4);
+}
+function coinIconUrl(sym) {
+  return 'https://assets.coincap.io/assets/icons/'
+    + sym.toLowerCase() + '@2x.png';
+}
+function iconHtml(sym, url) {
+  return '<img class="coin-icon" src="'
+    + esc(url) + '" alt="" onerror="'
+    + "this.style.display='none';"
+    + "this.nextElementSibling.style.display"
+    + "='inline-flex'" + '">'
+    + '<span class="coin-fallback" '
+    + 'style="display:none">'
+    + esc(sym.substring(0,3).toUpperCase())
+    + '</span>';
+}
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function() {
+    t.classList.remove('show');
+  }, 3000);
+}
+function toggleCard(id) {
+  document.getElementById(id)
+    .classList.toggle('collapsed');
+}
+function filterRoster(f, btn) {
+  rosterFilter = f;
+  var btns = document
+    .querySelectorAll('#rosterFilter button');
+  btns.forEach(function(b) {
+    b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  renderCoinRoster();
+}
+function sortRoster(s, btn) {
+  rosterSort = s;
+  var btns = document
+    .querySelectorAll('.sort-bar button');
+  btns.forEach(function(b) {
+    b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  renderCoinRoster();
+}
+
+// === INIT ===
+fetchBotState();
+fetchCoinStats();
+
+setInterval(function() {
+  fetchBotState();
+}, REFRESH_MS);
+
+document.addEventListener(
+  'visibilitychange', function() {
+    if (!document.hidden) fetchBotState();
+  });
+
+// Service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker
+    .register('service-worker.js');
+}
+</script>
+</body>
+</html>
