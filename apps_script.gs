@@ -29,6 +29,8 @@ function doGet(e) {
       result = updateCoinStatus_(e.parameter);
     } else if (action === 'init_coins') {
       result = initCoinStats_(e.parameter.data);
+    } else if (action === 'append_coins') {
+      result = appendCoinStats_(e.parameter.data);
     }
   } catch (err) {
     result = { status: 'error', message: err.toString() };
@@ -166,6 +168,30 @@ function initCoinStats_(jsonStr) {
   }
 
   return { status: 'success', count: rows.length };
+}
+
+function appendCoinStats_(jsonStr) {
+  if (!jsonStr) return { status: 'error', message: 'No data' };
+  var coins = JSON.parse(jsonStr);
+  var sheet = getOrCreateSheet_('CoinStats');
+
+  var rows = [];
+  for (var i = 0; i < coins.length; i++) {
+    var c = coins[i];
+    rows.push([
+      c.coin, 'active',
+      c.wr, c.pnl, c.avg_pnl, c.kelly,
+      c.max_loss_streak, c.trades,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    ]);
+  }
+
+  if (rows.length > 0) {
+    var lastRow = sheet.getLastRow();
+    sheet.getRange(lastRow + 1, 1, rows.length, 18).setValues(rows);
+  }
+
+  return { status: 'success', count: rows.length, total: sheet.getLastRow() - 1 };
 }
 
 function getCoinStats_() {

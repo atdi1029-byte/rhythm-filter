@@ -493,6 +493,127 @@ a { color: var(--accent); text-decoration: none; }
   border-color: var(--accent);
 }
 
+/* Kelly Edge Optimizer */
+.kelly-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+.kelly-stat {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.4rem;
+  text-align: center;
+}
+.kelly-stat .ks-val {
+  font-size: 1rem;
+  font-weight: 700;
+}
+.kelly-stat .ks-val.cyan {
+  color: var(--accent);
+}
+.kelly-stat .ks-val.yellow {
+  color: var(--yellow);
+}
+.kelly-stat .ks-val.green {
+  color: var(--green);
+}
+.kelly-stat .ks-val.red {
+  color: var(--red);
+}
+.kelly-stat .ks-label {
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 0.15rem;
+}
+.kelly-bars {
+  margin: 0.75rem 0;
+}
+.kelly-bar-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  gap: 0.5rem;
+}
+.kelly-bar-label {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  width: 80px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.kelly-bar-track {
+  flex: 1;
+  height: 12px;
+  background: var(--bg-dark);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+.kelly-bar-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.5s ease;
+}
+.kelly-bar-fill.blue {
+  background: linear-gradient(90deg,
+    #2196f3, #64b5f6);
+}
+.kelly-bar-fill.teal {
+  background: linear-gradient(90deg,
+    var(--accent-dim), var(--accent));
+}
+.kelly-bar-fill.red-bar {
+  background: linear-gradient(90deg,
+    #c62828, #ef5350);
+}
+.kelly-bar-amt {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-bright);
+  width: 45px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.kelly-zone {
+  text-align: center;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 0.5rem 0;
+  font-size: 0.75rem;
+}
+.kelly-zone.optimal {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.kelly-zone.over {
+  border-color: var(--red);
+  color: var(--red);
+}
+.kelly-zone.under {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+.kelly-note {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-align: center;
+  margin-top: 0.4rem;
+}
+.kelly-note b {
+  color: var(--accent);
+}
+@media (max-width: 480px) {
+  .kelly-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* Toast */
 .toast {
   position: fixed;
@@ -659,6 +780,18 @@ a { color: var(--accent); text-decoration: none; }
   </div>
 </div>
 
+<!-- Kelly Edge Optimizer -->
+<div class="card" id="kellyCard">
+  <div class="card-header">
+    Kelly Edge Optimizer
+    <span class="badge" id="kellyBadge">--</span>
+  </div>
+  <div class="card-body" id="kellyBody">
+    <div class="empty-state">
+      Need 5+ trades for Kelly calculation</div>
+  </div>
+</div>
+
 <!-- Compound Growth Projector -->
 <div class="card" id="projCard">
   <div class="card-header">
@@ -756,7 +889,7 @@ a { color: var(--accent); text-decoration: none; }
 
 <script>
 // === CONFIG ===
-var APPS_SCRIPT_URL = '';  // Set after deploying
+var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyVRrk_TFiTZpbqy9Q36muKZ3grqjrl28dfgT5xrOP9yEBa-BUSlOE8ezsDegkHvTUz/exec';
 var CACHE_KEY = 'rf_dashboard_cache';
 var LEVEL_KEY = 'rf_pokemon_level';
 var REFRESH_MS = 30000;
@@ -953,6 +1086,7 @@ function fetchCoinStats() {
           CACHE_KEY, JSON.stringify(cache));
       } catch(e) {}
       renderCoinRoster();
+      renderKelly();
     }
   );
 }
@@ -962,6 +1096,7 @@ function renderAll() {
   renderStats();
   renderStatus();
   renderPositions();
+  renderKelly();
   renderSignalHistory();
   renderLevel();
   updateProjDefaults();
@@ -1203,6 +1338,245 @@ function renderCoinRoster() {
   grid.innerHTML = h;
 }
 
+// === KELLY EDGE OPTIMIZER ===
+function renderKelly() {
+  var body = document.getElementById('kellyBody');
+  var badge = document.getElementById('kellyBadge');
+  if (!body) return;
+
+  // Aggregate stats from botState + coinStats
+  var wins = 0, losses = 0, totalPnl = 0;
+  var grossWin = 0, grossLoss = 0;
+  var totalTrades = 0;
+
+  // If coinStats available, use live running totals
+  if (coinStats && coinStats.length > 0) {
+    for (var i = 0; i < coinStats.length; i++) {
+      var c = coinStats[i];
+      var lt = Number(c.Live_Trades) || 0;
+      if (lt > 0) {
+        totalTrades += lt;
+        wins += Number(c.Live_Wins) || 0;
+        losses += Number(c.Live_Losses) || 0;
+        totalPnl += Number(c.Live_PnL) || 0;
+        grossWin += Number(c.Live_WinSum) || 0;
+      }
+    }
+    grossLoss = Math.abs(totalPnl - grossWin);
+  } else if (botState) {
+    // Fallback to botState aggregates
+    totalTrades = botState.total_trades || 0;
+    wins = botState.total_wins || 0;
+    losses = totalTrades - wins;
+    totalPnl = botState.total_pnl || 0;
+  }
+
+  if (totalTrades < 5) {
+    body.innerHTML =
+      '<div class="empty-state">'
+      + 'Need ' + (5 - totalTrades)
+      + ' more trades for Kelly'
+      + ' (' + totalTrades + '/5)</div>';
+    badge.textContent = totalTrades + '/5';
+    return;
+  }
+
+  var wr = wins / totalTrades;
+  var avgWin = wins > 0
+    ? grossWin / wins : 0;
+  var avgLoss = losses > 0
+    ? grossLoss / losses : 0;
+  var rr = avgLoss > 0
+    ? avgWin / avgLoss : 0;
+
+  // Expected value per trade (% terms)
+  var ev = avgWin * wr - avgLoss * (1 - wr);
+
+  // Profit factor
+  var pf = grossLoss > 0
+    ? grossWin / grossLoss : Infinity;
+
+  // Kelly: f* = (b*p - q) / b
+  var kellyF = rr > 0
+    ? (rr * wr - (1 - wr)) / rr : 0;
+  if (kellyF < 0) kellyF = 0;
+  var halfKelly = kellyF / 2;
+
+  // Edge per $1 bet
+  var edgeRate = ev;
+
+  // Trades to double (geometric)
+  var lnG = wr
+    * Math.log(1 + Math.min(avgWin / 100, 0.99))
+    + (1 - wr)
+    * Math.log(1 - Math.min(avgLoss / 100, 0.99));
+  var tradesToDbl = lnG > 0
+    ? Math.ceil(Math.log(2) / lnG) : Infinity;
+
+  // Badge
+  badge.textContent =
+    (kellyF * 100).toFixed(1) + '%';
+  badge.style.background =
+    kellyF > 0 ? 'var(--green-dim)'
+    : 'var(--red-dim)';
+  badge.style.color =
+    kellyF > 0 ? 'var(--green)' : 'var(--red)';
+
+  // Stats grid (8 stats, same as crypto app)
+  var h = '<div class="kelly-grid">';
+
+  h += kStat((wr * 100).toFixed(1) + '%',
+    'Win Rate',
+    wr >= 0.5 ? 'green' : 'red');
+  h += kStat(rr.toFixed(2) + 'x',
+    'Reward/Risk',
+    rr >= 1 ? 'green' : 'yellow');
+  h += kStat((kellyF * 100).toFixed(1) + '%',
+    'Kelly f*', 'cyan');
+  h += kStat((halfKelly * 100).toFixed(1) + '%',
+    'Half-Kelly', 'green');
+  h += kStat(
+    pf === Infinity ? '∞' : pf.toFixed(2) + 'x',
+    'Profit Factor', 'cyan');
+  h += kStat(
+    (ev >= 0 ? '+' : '') + ev.toFixed(3) + '%',
+    'EV / Trade',
+    ev >= 0 ? 'green' : 'red');
+  h += kStat(
+    (edgeRate * 100).toFixed(1) + '%',
+    'Edge / $1', 'cyan');
+  h += kStat(
+    tradesToDbl < 10000 ? tradesToDbl : '∞',
+    'Trades to 2x', 'yellow');
+
+  h += '</div>';
+
+  // Comparison bars: Actual vs Half-Kelly vs Full
+  // Show what % of account bot is betting
+  // vs what Kelly recommends
+  var actualPct = 0;
+  if (botState && botState.current_alloc_pct) {
+    actualPct = botState.current_alloc_pct;
+  } else {
+    // Default: equal weight = 1/144 ≈ 0.69%
+    actualPct = 0.69;
+  }
+  var maxBar = Math.max(
+    actualPct, halfKelly * 100,
+    kellyF * 100, 1);
+
+  h += '<div class="kelly-bars">';
+  h += '<div style="font-size:0.6rem;'
+    + 'color:var(--accent);font-weight:700;'
+    + 'margin-bottom:0.4rem;text-transform:'
+    + 'uppercase;letter-spacing:1px">'
+    + 'Position Sizing vs Kelly</div>';
+
+  // Actual bar
+  h += kellyBar('Actual',
+    actualPct.toFixed(2) + '%',
+    (actualPct / maxBar * 100), 'teal');
+  // Half-Kelly bar
+  h += kellyBar('Half-Kelly',
+    (halfKelly * 100).toFixed(2) + '%',
+    (halfKelly * 100 / maxBar * 100), 'blue');
+  // Full Kelly bar
+  h += kellyBar('Full Kelly',
+    (kellyF * 100).toFixed(2) + '%',
+    (kellyF * 100 / maxBar * 100), 'red-bar');
+
+  h += '</div>';
+
+  // Zone indicator
+  var zone, zoneClass, zoneNote;
+  var actualVsHalf = halfKelly > 0
+    ? actualPct / (halfKelly * 100) * 100 : 0;
+
+  if (kellyF <= 0) {
+    zone = 'NO EDGE — Kelly says don\'t bet';
+    zoneClass = 'over';
+    zoneNote = 'Win rate too low or reward/risk'
+      + ' too poor. Bot should pause.';
+  } else if (actualVsHalf > 150) {
+    zone = 'OVER KELLY — high risk';
+    zoneClass = 'over';
+    zoneNote = 'At ' + actualVsHalf.toFixed(0)
+      + '% of Half-Kelly. Reduce size'
+      + ' or wait for more data.';
+  } else if (actualVsHalf >= 70) {
+    zone = 'OPTIMAL ZONE';
+    zoneClass = 'optimal';
+    zoneNote = 'At ' + actualVsHalf.toFixed(0)
+      + '% of Half-Kelly. '
+      + 'Maximizing growth safely.';
+  } else {
+    zone = 'CONSERVATIVE — room to push';
+    zoneClass = 'under';
+    zoneNote = 'At ' + actualVsHalf.toFixed(0)
+      + '% of Half-Kelly. '
+      + 'Could increase position size.';
+  }
+
+  h += '<div class="kelly-zone ' + zoneClass + '">'
+    + zone + '</div>';
+  h += '<div class="kelly-note">'
+    + zoneNote + '</div>';
+
+  // Reliability warning
+  if (totalTrades < 50) {
+    h += '<div class="kelly-note" '
+      + 'style="color:var(--yellow);'
+      + 'margin-top:0.5rem">'
+      + '&#9888; ' + totalTrades
+      + ' trades — Kelly needs 50+'
+      + ' for reliability</div>';
+  } else if (totalTrades < 100) {
+    h += '<div class="kelly-note" '
+      + 'style="color:var(--accent);'
+      + 'margin-top:0.5rem">'
+      + totalTrades + ' trades — getting'
+      + ' reliable. 100+ = strong.</div>';
+  } else {
+    h += '<div class="kelly-note" '
+      + 'style="color:var(--green);'
+      + 'margin-top:0.5rem">'
+      + totalTrades + ' trades —'
+      + ' statistically reliable edge</div>';
+  }
+
+  // Bot recommendation
+  h += '<div class="kelly-note" '
+    + 'style="margin-top:0.5rem">'
+    + 'Bot uses <b>Half-Kelly</b> capped at '
+    + '<b>0.5%-5%</b> per coin. '
+    + 'Current f*/2 = <b>'
+    + (halfKelly * 100).toFixed(2)
+    + '%</b> per coin.</div>';
+
+  body.innerHTML = h;
+}
+
+function kStat(val, label, color) {
+  return '<div class="kelly-stat">'
+    + '<div class="ks-val ' + color + '">'
+    + val + '</div>'
+    + '<div class="ks-label">'
+    + label + '</div></div>';
+}
+
+function kellyBar(label, amt, pct, cls) {
+  pct = Math.max(0, Math.min(100, pct));
+  return '<div class="kelly-bar-row">'
+    + '<div class="kelly-bar-label">'
+    + label + '</div>'
+    + '<div class="kelly-bar-track">'
+    + '<div class="kelly-bar-fill ' + cls
+    + '" style="width:' + pct + '%"></div>'
+    + '</div>'
+    + '<div class="kelly-bar-amt">'
+    + amt + '</div></div>';
+}
+
 function renderLevel() {
   if (!botState) return;
   var tc = botState.total_trades || 0;
@@ -1399,11 +1773,15 @@ fetchCoinStats();
 
 setInterval(function() {
   fetchBotState();
+  fetchCoinStats();
 }, REFRESH_MS);
 
 document.addEventListener(
   'visibilitychange', function() {
-    if (!document.hidden) fetchBotState();
+    if (!document.hidden) {
+      fetchBotState();
+      fetchCoinStats();
+    }
   });
 
 // Service worker
