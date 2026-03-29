@@ -1,10 +1,11 @@
-var CACHE_NAME = 'rhythm-filter-v6';
+var CACHE_NAME = 'rhythm-filter-v7';
 var ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './scrooge-ukiyo-e.svg'
 ];
 
 self.addEventListener('install', function(e) {
