@@ -1150,6 +1150,8 @@ function fetchBotState() {
       dot.className = 'status-dot synced';
       document.getElementById('syncLabel')
         .textContent = 'Synced';
+      // Snapshot today's P&L
+      snapshotTodayPnl();
       // Cache
       try {
         var cache = JSON.parse(
@@ -1184,9 +1186,6 @@ function fetchCoinStats() {
       renderCoinRoster();
       renderLivePerformance();
       renderKelly();
-      // Redraw P&L chart (fallback uses coinStats)
-      if (!tradeHistory || tradeHistory.length === 0)
-        drawPnlChart();
     }
   );
 }
@@ -1862,20 +1861,36 @@ function sortRoster(s, btn) {
 }
 
 // === P&L CHART ===
-var tradeHistory = [];
+var pnlHistory = [];
 var chartRange = 'all';
 
-function fetchTradeHistory() {
+function fetchPnlHistory() {
   if (!APPS_SCRIPT_URL) return;
   jsonpFetch(
-    APPS_SCRIPT_URL + '?action=get_trades&limit=500',
+    APPS_SCRIPT_URL + '?action=get_pnl_history',
     function(err, data) {
       if (err || !data ||
         data.status !== 'success') return;
-      tradeHistory = (data.data || []).reverse();
+      pnlHistory = data.data || [];
       drawPnlChart();
     }
   );
+}
+
+function snapshotTodayPnl() {
+  if (!APPS_SCRIPT_URL || !botState) return;
+  var pnl = botState.total_pnl || 0;
+  var trades = botState.total_trades || 0;
+  var wins = botState.total_wins || 0;
+  var wr = trades > 0
+    ? (wins / trades * 100) : 0;
+  // Fire-and-forget snapshot
+  var img = new Image();
+  img.src = APPS_SCRIPT_URL
+    + '?action=snapshot_pnl'
+    + '&pnl=' + pnl.toFixed(4)
+    + '&trades=' + trades
+    + '&wr=' + wr.toFixed(1);
 }
 
 function setChartRange(range, btn) {
@@ -1891,51 +1906,39 @@ function setChartRange(range, btn) {
 
 function drawPnlChart() {
   var wrap = document.getElementById('pnlChartWrap');
-  if (!tradeHistory || tradeHistory.length === 0) {
-    // Fallback: bar chart from CoinStats
-    if (coinStats && coinStats.length > 0) {
-      var live = coinStats.filter(function(c) {
-        return (Number(c.Live_Trades) || 0) > 0;
-      });
-      if (live.length > 0) {
-        drawCoinPnlBars(wrap, live);
-        return;
-      }
-    }
+  if (!pnlHistory || pnlHistory.length === 0) {
     wrap.innerHTML =
       '<div class="pnl-chart-empty">'
-      + 'No closed trades yet</div>';
+      + 'No data yet</div>';
     return;
   }
 
   // Filter by range
-  var trades = tradeHistory;
+  var entries = pnlHistory;
   if (chartRange !== 'all') {
     var now = Date.now();
     var ms = { '24h': 864e5, '7d': 6048e5,
       '30d': 2592e6 };
     var cutoff = now - (ms[chartRange] || 0);
-    trades = tradeHistory.filter(function(t) {
-      return new Date(t.Timestamp).getTime()
+    entries = pnlHistory.filter(function(e) {
+      return new Date(e.date).getTime()
         >= cutoff;
     });
   }
 
-  if (trades.length === 0) {
+  if (entries.length === 0) {
     wrap.innerHTML =
       '<div class="pnl-chart-empty">'
-      + 'No trades in this range</div>';
+      + 'No data in this range</div>';
     return;
   }
 
-  // Build cumulative P&L
-  var cumPnl = [0];
-  var labels = ['Start'];
-  var running = 0;
-  for (var i = 0; i < trades.length; i++) {
-    running += Number(trades[i]['PnL%'] || 0);
-    cumPnl.push(running);
-    var d = new Date(trades[i].Timestamp);
+  // Build arrays
+  var cumPnl = [];
+  var labels = [];
+  for (var i = 0; i < entries.length; i++) {
+    cumPnl.push(Number(entries[i].pnl) || 0);
+    var d = new Date(entries[i].date);
     labels.push(
       (d.getMonth()+1) + '/' + d.getDate());
   }
@@ -1959,9 +1962,11 @@ function drawPnlChart() {
   var cw = W - pad.l - pad.r;
   var ch = H - pad.t - pad.b;
 
-  // Scales
+  // Scales — always include 0
   var minV = Math.min.apply(null, cumPnl);
   var maxV = Math.max.apply(null, cumPnl);
+  if (minV > 0) minV = 0;
+  if (maxV < 0) maxV = 0;
   if (minV === maxV) {
     minV -= 1; maxV += 1;
   }
@@ -1970,7 +1975,9 @@ function drawPnlChart() {
   maxV += rangeV * 0.1;
 
   function xPos(i) {
-    return pad.l + (i / (cumPnl.length - 1)) * cw;
+    var n = cumPnl.length;
+    if (n <= 1) return pad.l + cw / 2;
+    return pad.l + (i / (n - 1)) * cw;
   }
   function yPos(v) {
     return pad.t + (1 - (v - minV)
@@ -1978,16 +1985,14 @@ function drawPnlChart() {
   }
 
   // Zero line
-  if (minV < 0 && maxV > 0) {
-    ctx.strokeStyle = '#2a2418';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(pad.l, yPos(0));
-    ctx.lineTo(W - pad.r, yPos(0));
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
+  ctx.strokeStyle = '#2a2418';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(pad.l, yPos(0));
+  ctx.lineTo(W - pad.r, yPos(0));
+  ctx.stroke();
+  ctx.setLineDash([]);
 
   // Fill gradient
   var lastPnl = cumPnl[cumPnl.length - 1];
@@ -2046,9 +2051,10 @@ function drawPnlChart() {
       pad.l - 5, y + 3);
   }
 
-  // X axis labels (show a few dates)
+  // X axis labels
   ctx.textAlign = 'center';
   var xSteps = Math.min(5, labels.length - 1);
+  if (xSteps < 1) xSteps = 1;
   for (var s = 0; s <= xSteps; s++) {
     var idx = Math.round(
       s * (labels.length - 1) / xSteps);
@@ -2065,132 +2071,24 @@ function drawPnlChart() {
   ctx.fillText(
     (lastPnl >= 0 ? '+' : '')
     + lastPnl.toFixed(2) + '%'
-    + '  (' + (trades.length) + ' trades)',
+    + '  (' + entries.length + ' days)',
     pad.l, pad.t - 5);
-}
-
-function drawCoinPnlBars(wrap, live) {
-  // Sort by P&L descending
-  live.sort(function(a, b) {
-    return (Number(b.Live_PnL) || 0)
-      - (Number(a.Live_PnL) || 0);
-  });
-
-  var dpr = window.devicePixelRatio || 1;
-  wrap.innerHTML = '<canvas id="pnlCanvas">'
-    + '</canvas>';
-  var canvas = document.getElementById('pnlCanvas');
-  var rect = wrap.getBoundingClientRect();
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-  canvas.style.width = rect.width + 'px';
-  canvas.style.height = rect.height + 'px';
-  var ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-
-  var W = rect.width;
-  var H = rect.height;
-  var pad = { t: 25, r: 15, b: 30, l: 50 };
-  var cw = W - pad.l - pad.r;
-  var ch = H - pad.t - pad.b;
-  var n = live.length;
-  var barW = Math.min(
-    30, (cw / n) * 0.7);
-  var gap = cw / n;
-
-  // Find min/max
-  var vals = live.map(function(c) {
-    return Number(c.Live_PnL) || 0;
-  });
-  var minV = Math.min.apply(null, vals);
-  var maxV = Math.max.apply(null, vals);
-  if (minV >= 0) minV = 0;
-  if (maxV <= 0) maxV = 0;
-  if (minV === maxV) {
-    minV -= 1; maxV += 1;
-  }
-  var rangeV = maxV - minV;
-  minV -= rangeV * 0.1;
-  maxV += rangeV * 0.1;
-
-  function yPos(v) {
-    return pad.t + (1 - (v - minV)
-      / (maxV - minV)) * ch;
-  }
-
-  // Zero line
-  ctx.strokeStyle = '#2a2418';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath();
-  ctx.moveTo(pad.l, yPos(0));
-  ctx.lineTo(W - pad.r, yPos(0));
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Bars
-  for (var i = 0; i < n; i++) {
-    var v = vals[i];
-    var x = pad.l + gap * i
-      + (gap - barW) / 2;
-    var y0 = yPos(0);
-    var y1 = yPos(v);
-    ctx.fillStyle = v >= 0
-      ? 'rgba(76,175,80,0.7)'
-      : 'rgba(239,83,80,0.7)';
-    ctx.fillRect(x, Math.min(y0, y1),
-      barW, Math.abs(y1 - y0));
-
-    // Coin label
-    var sym = (live[i].Coin || '')
-      .replace('usdt','').toUpperCase();
-    ctx.fillStyle = '#7a6f58';
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(sym,
-      x + barW / 2, H - pad.b + 12);
-  }
-
-  // Y axis labels
-  ctx.fillStyle = '#7a6f58';
-  ctx.font = '10px monospace';
-  ctx.textAlign = 'right';
-  var steps = 4;
-  for (var s = 0; s <= steps; s++) {
-    var val = minV + (maxV - minV)
-      * (1 - s / steps);
-    var y = pad.t + (s / steps) * ch;
-    ctx.fillText(
-      (val >= 0 ? '+' : '')
-      + val.toFixed(1) + '%',
-      pad.l - 5, y + 3);
-  }
-
-  // Title
-  var totalPnl = vals.reduce(
-    function(a, b) { return a + b; }, 0);
-  ctx.fillStyle = totalPnl >= 0
-    ? '#4caf50' : '#ef5350';
-  ctx.font = 'bold 12px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText('Per-Coin P&L ('
-    + n + ' coins)', pad.l, pad.t - 8);
 }
 
 // Redraw on resize
 window.addEventListener('resize', function() {
-  if (tradeHistory.length > 0) drawPnlChart();
+  if (pnlHistory.length > 0) drawPnlChart();
 });
 
 // === INIT ===
 fetchBotState();
 fetchCoinStats();
-fetchTradeHistory();
+fetchPnlHistory();
 
 setInterval(function() {
   fetchBotState();
   fetchCoinStats();
-  fetchTradeHistory();
+  fetchPnlHistory();
 }, REFRESH_MS);
 
 document.addEventListener(
@@ -2198,7 +2096,7 @@ document.addEventListener(
     if (!document.hidden) {
       fetchBotState();
       fetchCoinStats();
-      fetchTradeHistory();
+      fetchPnlHistory();
     }
   });
 

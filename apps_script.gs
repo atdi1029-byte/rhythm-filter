@@ -5,6 +5,7 @@
  *   BotState   — A1=JSON blob, B1=timestamp
  *   TradeLog   — append-only trade history (row per trade)
  *   CoinStats  — per-coin running stats
+ *   PnlHistory — daily P&L snapshots for chart
  *
  * All endpoints use GET + JSONP for mobile safety.
  */
@@ -33,6 +34,10 @@ function doGet(e) {
       result = appendCoinStats_(e.parameter.data);
     } else if (action === 'clear_trades') {
       result = clearTrades_();
+    } else if (action === 'snapshot_pnl') {
+      result = snapshotPnl_(e.parameter);
+    } else if (action === 'get_pnl_history') {
+      result = getPnlHistory_();
     } else if (action === 'get_signal') {
       result = getLatestSignal_();
     } else if (action === 'ack_signal') {
@@ -349,6 +354,63 @@ function updateCoinStatus_(params) {
   return { status: 'error', message: 'Coin not found' };
 }
 
+
+// === P&L HISTORY ===
+
+function snapshotPnl_(params) {
+  var pnl = parseFloat(params.pnl || '0');
+  var trades = parseInt(params.trades || '0');
+  var wr = parseFloat(params.wr || '0');
+
+  var sheet = getOrCreateSheet_('PnlHistory');
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 4).setValues([[
+      'Date', 'PnL', 'Trades', 'WR'
+    ]]);
+  }
+
+  // Today's date string (YYYY-MM-DD)
+  var today = Utilities.formatDate(
+    new Date(), 'America/New_York', 'yyyy-MM-dd');
+
+  // Check if today already has a row — update it
+  if (sheet.getLastRow() > 1) {
+    var dates = sheet.getRange(2, 1,
+      sheet.getLastRow() - 1, 1).getValues();
+    for (var i = dates.length - 1; i >= 0; i--) {
+      if (dates[i][0] === today) {
+        var rowIdx = i + 2;
+        sheet.getRange(rowIdx, 2, 1, 3)
+          .setValues([[pnl, trades, wr]]);
+        return { status: 'success', updated: true };
+      }
+    }
+  }
+
+  // New day — append
+  sheet.appendRow([today, pnl, trades, wr]);
+  return { status: 'success', updated: false };
+}
+
+function getPnlHistory_() {
+  var sheet = getOrCreateSheet_('PnlHistory');
+  if (sheet.getLastRow() <= 1) {
+    return { status: 'success', data: [] };
+  }
+
+  var data = sheet.getRange(2, 1,
+    sheet.getLastRow() - 1, 4).getValues();
+  var result = [];
+  for (var i = 0; i < data.length; i++) {
+    result.push({
+      date: data[i][0],
+      pnl: data[i][1],
+      trades: data[i][2],
+      wr: data[i][3]
+    });
+  }
+  return { status: 'success', data: result };
+}
 
 // === SIGNALS ===
 
