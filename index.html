@@ -436,6 +436,15 @@ a { color: var(--accent); text-decoration: none; }
   background: var(--red-dim);
   color: var(--red);
 }
+.cc-status.live {
+  background: var(--green-dim);
+  color: var(--green-bright);
+  animation: livePulse 2s infinite;
+}
+@keyframes livePulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
 .coin-card .cc-stats {
   font-size: 0.65rem;
   color: var(--text-dim);
@@ -1426,8 +1435,14 @@ function renderCoinRoster() {
     h += '<span class="cc-sym">'
       + iconHtml(sym.toLowerCase(), icon)
       + ' ' + esc(sym) + '</span>';
-    h += '<span class="cc-status ' + status + '">'
-      + status + '</span>';
+    var hasLive = (c.Live_Trades || 0) > 0;
+    if (hasLive) {
+      h += '<span class="cc-status live">'
+        + 'LIVE</span>';
+    } else {
+      h += '<span class="cc-status ' + status + '">'
+        + status + '</span>';
+    }
     h += '</div>';
     h += '<div class="cc-stats">';
     h += '<span>WR: '

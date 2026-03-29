@@ -31,6 +31,8 @@ function doGet(e) {
       result = initCoinStats_(e.parameter.data);
     } else if (action === 'append_coins') {
       result = appendCoinStats_(e.parameter.data);
+    } else if (action === 'clear_trades') {
+      result = clearTrades_();
     } else if (action === 'get_signal') {
       result = getLatestSignal_();
     } else if (action === 'ack_signal') {
@@ -164,6 +166,14 @@ function getTrades_(params) {
   return { status: 'success', data: trades };
 }
 
+
+function clearTrades_() {
+  var sheet = getOrCreateSheet_('TradeLog');
+  if (sheet.getLastRow() > 1) {
+    sheet.deleteRows(2, sheet.getLastRow() - 1);
+  }
+  return { status: 'success' };
+}
 
 // === COIN STATS ===
 
