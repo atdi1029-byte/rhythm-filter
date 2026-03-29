@@ -18,7 +18,7 @@ BASE_URL = "https://fapi.bitunix.com"
 class BitunixClient:
     def __init__(self, api_key=None, secret_key=None):
         self.api_key = api_key or os.environ.get("BITUNIX_API_KEY", "")
-        self.secret_key = secret_key or os.environ.get("BITUNIX_SECRET_KEY", "")
+        self.secret_key = secret_key or os.environ.get("BITUNIX_API_SECRET", "")
         self.session = requests.Session()
 
     def _sha256(self, s):
@@ -55,7 +55,7 @@ class BitunixClient:
 
         headers = self._sign(query_params=query_str)
         url = BASE_URL + path
-        r = self.session.get(url, params=params, headers=headers, timeout=10)
+        r = self.session.get(url, params=params, headers=headers, timeout=30)
         return r.json()
 
     def _post(self, path, data=None):
@@ -63,7 +63,7 @@ class BitunixClient:
         body = json.dumps(data, separators=(",", ":")) if data else ""
         headers = self._sign(body=body)
         url = BASE_URL + path
-        r = self.session.post(url, data=body, headers=headers, timeout=10)
+        r = self.session.post(url, data=body, headers=headers, timeout=30)
         return r.json()
 
     # === MARKET DATA (public, no auth needed) ===
@@ -74,7 +74,7 @@ class BitunixClient:
         if symbols:
             params["symbols"] = ",".join(symbols)
         url = BASE_URL + "/api/v1/futures/market/tickers"
-        r = self.session.get(url, params=params, timeout=10)
+        r = self.session.get(url, params=params, timeout=30)
         return r.json()
 
     def get_trading_pairs(self, symbols=None):
@@ -83,7 +83,7 @@ class BitunixClient:
         if symbols:
             params["symbols"] = ",".join(symbols)
         url = BASE_URL + "/api/v1/futures/market/trading_pairs"
-        r = self.session.get(url, params=params, timeout=10)
+        r = self.session.get(url, params=params, timeout=30)
         return r.json()
 
     # === ACCOUNT ===

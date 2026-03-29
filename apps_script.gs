@@ -31,6 +31,10 @@ function doGet(e) {
       result = initCoinStats_(e.parameter.data);
     } else if (action === 'append_coins') {
       result = appendCoinStats_(e.parameter.data);
+    } else if (action === 'get_signal') {
+      result = getLatestSignal_();
+    } else if (action === 'ack_signal') {
+      result = ackSignal_(e.parameter.id);
     }
   } catch (err) {
     result = { status: 'error', message: err.toString() };
@@ -43,6 +47,38 @@ function doGet(e) {
   }
   return ContentService.createTextOutput(json)
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// === WEBHOOK RECEIVER (TradingView POST) ===
+
+function doPost(e) {
+  try {
+    var body = e.postData.contents;
+    var signal = JSON.parse(body);
+
+    var sheet = getOrCreateSheet_('Signals');
+    if (sheet.getLastRow() === 0) {
+      sheet.getRange(1, 1, 1, 6).setValues([[
+        'Timestamp', 'Signal', 'Score', 'BuyZone',
+        'SellZone', 'Acked'
+      ]]);
+    }
+
+    sheet.appendRow([
+      new Date().toISOString(),
+      signal.signal || 'SHORT',
+      signal.score || 0,
+      signal.buyZone || 0,
+      signal.sellZone || 0,
+      'no'
+    ]);
+
+    return ContentService.createTextOutput('OK')
+      .setMimeType(ContentService.MimeType.TEXT);
+  } catch (err) {
+    return ContentService.createTextOutput('ERROR: ' + err.toString())
+      .setMimeType(ContentService.MimeType.TEXT);
+  }
 }
 
 
@@ -297,6 +333,47 @@ function updateCoinStatus_(params) {
   }
 
   return { status: 'error', message: 'Coin not found' };
+}
+
+
+// === SIGNALS ===
+
+function getLatestSignal_() {
+  var sheet = getOrCreateSheet_('Signals');
+  if (sheet.getLastRow() <= 1) {
+    return { status: 'success', signal: null };
+  }
+
+  // Find most recent un-acked signal
+  var data = sheet.getDataRange().getValues();
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (data[i][5] !== 'yes') {
+      return {
+        status: 'success',
+        signal: {
+          id: i + 1,   // row number
+          timestamp: data[i][0],
+          type: data[i][1],
+          score: data[i][2],
+          buyZone: data[i][3],
+          sellZone: data[i][4]
+        }
+      };
+    }
+  }
+
+  return { status: 'success', signal: null };
+}
+
+function ackSignal_(rowId) {
+  if (!rowId) return { status: 'error', message: 'No signal id' };
+  var sheet = getOrCreateSheet_('Signals');
+  var row = parseInt(rowId);
+  if (row < 2 || row > sheet.getLastRow()) {
+    return { status: 'error', message: 'Invalid row' };
+  }
+  sheet.getRange(row, 6).setValue('yes');
+  return { status: 'success' };
 }
 
 

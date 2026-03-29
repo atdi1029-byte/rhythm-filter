@@ -1,0 +1,390 @@
+//@version=6
+indicator("Rhythm Filter v2", overlay=false, precision=1)
+
+// Rhythm Filter v2 — Buy/Sell phase transition detector
+// Shows when the market shifts from buy phase to sell phase
+// Buy signals cluster → then transition → sell signals cluster
+// The rhythm: BUY PHASE → TRANSITION → SELL PHASE → repeat
+
+// === SHARED INPUTS ===
+rsiLen      = input.int(14, "RSI Length")
+pivotStr    = input.int(3,  "Pivot Strength")
+touchSens   = input.float(4.0, "Touch Sensitivity")
+minTouches  = input.int(2,  "Min Touches")
+minBarsReq  = input.int(15, "Min Bars for Setup")
+volMaLen    = input.int(20, "Volume MA Length")
+macdF       = input.int(12, "MACD Fast")
+macdSl      = input.int(26, "MACD Slow")
+macdSig     = input.int(9,  "MACD Signal")
+regimeWindow = input.int(6, "Regime Window (signals)",
+     minval=3, maxval=12,
+     tooltip="Number of recent signals to track")
+
+// === BUY-SPECIFIC ===
+grpBuy = "Buy Signal (v8)"
+buyStartLvl  = input.float(60, "Start Level",
+     group=grpBuy)
+buyMaxSig    = input.int(2, "Max Signals",
+     group=grpBuy)
+oversoldLvl  = input.float(30, "Oversold Level",
+     group=grpBuy)
+maxBreakRsi  = input.float(50, "Max Breakout RSI",
+     group=grpBuy)
+buyLookback  = input.int(20, "Lookback Bars",
+     group=grpBuy)
+buyVolThr    = input.float(0.7, "Volume Threshold",
+     group=grpBuy)
+
+// === SELL-SPECIFIC ===
+grpSell = "Sell Signal (v3)"
+sellStartLvl = input.float(40, "Start Level",
+     group=grpSell)
+sellMaxSig   = input.int(2, "Max Signals",
+     group=grpSell)
+overbLvl     = input.float(70, "Overbought Level",
+     group=grpSell)
+minBreakRsi  = input.float(50, "Min Breakdown RSI",
+     group=grpSell)
+sellLookback = input.int(20, "Lookback Bars",
+     group=grpSell)
+sellVolThr   = input.float(0.9, "Volume Threshold",
+     group=grpSell)
+
+// === INDICATORS ===
+rsiVal = ta.rsi(close, rsiLen)
+[ml, sl2, hist] = ta.macd(close, macdF, macdSl, macdSig)
+vMa = ta.sma(volume, volMaLen)
+vRatio = volume / vMa
+
+// Pivots
+pvHigh = ta.pivothigh(rsiVal, pivotStr, pivotStr)
+pvLow  = ta.pivotlow(rsiVal, pivotStr, pivotStr)
+
+
+// =====================================================
+// BUY SIGNAL DETECTION (descending trendline on RSI)
+// =====================================================
+
+var float bA1r = na
+var int   bA1b = na
+var float bA2r = na
+var int   bA2b = na
+var int   bTch = 0
+var bool  bAct = false
+var int   bSig = 0
+var int   bCrs = 100
+
+bTrendVal(int b) =>
+    if na(bA1b) or na(bA2b) or bA1b == bA2b
+        float(na)
+    else
+        bA1r + (bA2r - bA1r) / (bA2b - bA1b) * (b - bA1b)
+
+// Anchor 1 (high pivot >= startLevel)
+if not na(pvHigh) and pvHigh >= buyStartLvl
+    pBar = bar_index - pivotStr
+    tAtP = bTrendVal(pBar)
+    doReset = not bAct or na(tAtP) or pvHigh > tAtP
+    if doReset and (na(bA1r) or pvHigh > bA1r)
+        bA1r := pvHigh
+        bA1b := pBar
+        bA2r := na
+        bA2b := na
+        bTch := 1
+        bAct := false
+        bSig := 0
+        bCrs := 100
+
+// Anchor 2 (lower pivot < startLevel)
+if not na(bA1b) and na(bA2b) and not na(pvHigh)
+    if pvHigh < buyStartLvl and pvHigh < bA1r
+        bA2r := pvHigh
+        bA2b := bar_index - pivotStr
+        bAct := true
+        bTch := 2
+
+// Touches
+if bAct and not na(pvHigh) and pvHigh < buyStartLvl
+    exp = bTrendVal(bar_index - pivotStr)
+    if not na(exp)
+        if pvHigh >= exp - touchSens and pvHigh <= exp + touchSens
+            bTch += 1
+        else if pvHigh < bA2r
+            bA2r := pvHigh
+            bA2b := bar_index - pivotStr
+            bTch += 1
+
+// Cross detection (above)
+bCurT = bTrendVal(bar_index)
+bPrvT = bTrendVal(bar_index - 1)
+if not na(bCurT) and not na(bPrvT) and not na(rsiVal[1])
+    if rsiVal > bCurT and rsiVal[1] <= bPrvT
+        bCrs := 0
+    else
+        bCrs += 1
+else
+    bCrs += 1
+
+bCrossed  = bCrs <= 5 and not na(bCurT) and rsiVal > bCurT
+bElapsed  = not na(bA1b) ? bar_index - bA1b : 0
+bTime     = bElapsed >= minBarsReq
+bOversold = ta.lowest(rsiVal, buyLookback) < oversoldLvl
+bZone     = rsiVal >= (oversoldLvl - 2) and rsiVal < maxBreakRsi
+bMacd     = hist > hist[1] and hist[1] > hist[2]
+bVol      = volume >= vMa * buyVolThr
+
+buyFired = bAct and bCrossed and bTime and
+     bTch >= minTouches and bOversold and bZone and
+     bSig < buyMaxSig and bMacd and bVol
+
+if buyFired
+    bSig += 1
+    bCrs := 100
+
+
+// =====================================================
+// SELL SIGNAL DETECTION (ascending trendline on RSI)
+// =====================================================
+
+var float sA1r = na
+var int   sA1b = na
+var float sA2r = na
+var int   sA2b = na
+var int   sTch = 0
+var bool  sAct = false
+var int   sSig = 0
+var int   sCrs = 100
+
+sTrendVal(int b) =>
+    if na(sA1b) or na(sA2b) or sA1b == sA2b
+        float(na)
+    else
+        sA1r + (sA2r - sA1r) / (sA2b - sA1b) * (b - sA1b)
+
+// Anchor 1 (low pivot <= startLevel)
+if not na(pvLow) and pvLow <= sellStartLvl
+    pBar = bar_index - pivotStr
+    tAtP = sTrendVal(pBar)
+    doReset = not sAct or na(tAtP) or pvLow < tAtP
+    if doReset and (na(sA1r) or pvLow < sA1r)
+        sA1r := pvLow
+        sA1b := pBar
+        sA2r := na
+        sA2b := na
+        sTch := 1
+        sAct := false
+        sSig := 0
+        sCrs := 100
+
+// Anchor 2 (higher pivot > startLevel)
+if not na(sA1b) and na(sA2b) and not na(pvLow)
+    if pvLow > sellStartLvl and pvLow > sA1r
+        sA2r := pvLow
+        sA2b := bar_index - pivotStr
+        sAct := true
+        sTch := 2
+
+// Touches
+if sAct and not na(pvLow) and pvLow > sellStartLvl
+    exp = sTrendVal(bar_index - pivotStr)
+    if not na(exp)
+        if pvLow >= exp - touchSens and pvLow <= exp + touchSens
+            sTch += 1
+        else if pvLow > sA2r
+            sA2r := pvLow
+            sA2b := bar_index - pivotStr
+            sTch += 1
+
+// Cross detection (below)
+sCurT = sTrendVal(bar_index)
+sPrvT = sTrendVal(bar_index - 1)
+if not na(sCurT) and not na(sPrvT) and not na(rsiVal[1])
+    if rsiVal < sCurT and rsiVal[1] >= sPrvT
+        sCrs := 0
+    else
+        sCrs += 1
+else
+    sCrs += 1
+
+sCrossed    = sCrs <= 10 and not na(sCurT) and rsiVal < sCurT
+sElapsed    = not na(sA1b) ? bar_index - sA1b : 0
+sTime       = sElapsed >= minBarsReq
+sOverbought = ta.highest(rsiVal, sellLookback) > overbLvl
+sZone       = rsiVal > minBreakRsi and rsiVal <= (overbLvl + 2)
+sMacd       = hist < hist[1]
+sVol        = volume >= vMa * sellVolThr
+sRed        = close < open
+
+sellFired = sAct and sCrossed and sTime and
+     sTch >= minTouches and sOverbought and sZone and
+     sSig < sellMaxSig and sMacd and sVol and sRed
+
+if sellFired
+    sSig += 1
+    sCrs := 100
+
+
+// =====================================================
+// PHASE TRACKING — buy phase vs sell phase transitions
+// =====================================================
+
+// Track last N signals: +1 = buy, -1 = sell
+var sigHist = array.new_int(0)
+var int totalBuys = 0
+var int totalSells = 0
+
+if buyFired
+    array.push(sigHist, 1)
+    totalBuys += 1
+if sellFired
+    array.push(sigHist, -1)
+    totalSells += 1
+
+// Trim to window
+while array.size(sigHist) > regimeWindow
+    array.shift(sigHist)
+
+// Phase score: positive = buy phase, negative = sell phase
+phaseScore = 0
+if array.size(sigHist) > 0
+    for i = 0 to array.size(sigHist) - 1
+        phaseScore += array.get(sigHist, i)
+
+// Phase classification
+isBuyPhase  = phaseScore >= 2
+isSellPhase = phaseScore <= -2
+isTransition = not isBuyPhase and not isSellPhase
+
+
+// =====================================================
+// DISPLAY — Phase meter showing the shift
+// =====================================================
+
+// Phase score histogram
+phaseColor = isBuyPhase ? color.new(#00E676, 0) :
+     isSellPhase ? color.new(#FF1744, 0) :
+     color.new(#FFD600, 0)
+plot(phaseScore, "Phase Score", color=phaseColor,
+     linewidth=3, style=plot.style_histogram)
+
+// Reference lines
+hline(0, "Zero", color=color.gray,
+     linestyle=hline.style_dotted)
+hline(2, "Buy Phase", color=color.new(#00E676, 70),
+     linestyle=hline.style_dashed)
+hline(-2, "Sell Phase", color=color.new(#FF1744, 70),
+     linestyle=hline.style_dashed)
+
+// Signal markers
+plotshape(buyFired, "BUY", shape.triangleup,
+     location.bottom, color=color.new(#00E676, 0),
+     size=size.small)
+plotshape(sellFired, "SELL", shape.triangledown,
+     location.top, color=color.new(#FF1744, 0),
+     size=size.small)
+
+// Background: green = buy phase, red = sell phase
+bgcolor(isBuyPhase ? color.new(#00E676, 92) :
+     isSellPhase ? color.new(#FF1744, 92) : na,
+     title="Phase Zone")
+
+// Labels on signals showing phase context
+if buyFired
+    quality = isBuyPhase ? "TAKE IT" :
+         isTransition ? "CAUTION" : "SKIP"
+    qColor = isBuyPhase ? color.new(#00E676, 10) :
+         isTransition ? color.new(#FFD600, 10) :
+         color.new(#FF1744, 10)
+    label.new(bar_index, phaseScore - 1,
+         "BUY\n" + quality,
+         style=label.style_label_up, color=qColor,
+         textcolor=color.white, size=size.tiny)
+
+if sellFired
+    quality = isSellPhase ? "TAKE IT" :
+         isTransition ? "CAUTION" : "SKIP"
+    qColor = isSellPhase ? color.new(#FF1744, 10) :
+         isTransition ? color.new(#FFD600, 10) :
+         color.new(#00E676, 10)
+    label.new(bar_index, phaseScore + 1,
+         "SELL\n" + quality,
+         style=label.style_label_down, color=qColor,
+         textcolor=color.white, size=size.tiny)
+
+
+// =====================================================
+// INFO TABLE
+// =====================================================
+
+var table t = table.new(position.top_right, 2, 7,
+     bgcolor=color.new(#1E1E1E, 10),
+     border_color=color.gray, border_width=1)
+
+if barstate.islast
+    // Title + current phase
+    table.cell(t, 0, 0, "Rhythm Filter v2",
+         text_color=color.white, text_size=size.small,
+         bgcolor=color.new(#333333, 0))
+    phaseLabel = isBuyPhase ? "BUY PHASE" :
+         isSellPhase ? "SELL PHASE" : "TRANSITION"
+    phaseCol = isBuyPhase ? color.green :
+         isSellPhase ? color.red : color.yellow
+    table.cell(t, 1, 0, phaseLabel,
+         text_color=phaseCol, text_size=size.small,
+         bgcolor=color.new(#333333, 0))
+
+    // Score
+    table.cell(t, 0, 1, "Score",
+         text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 1, str.tostring(phaseScore),
+         text_color=phaseCol, text_size=size.tiny)
+
+    // Window breakdown
+    bInWin = 0
+    sInWin = 0
+    if array.size(sigHist) > 0
+        for i = 0 to array.size(sigHist) - 1
+            if array.get(sigHist, i) == 1
+                bInWin += 1
+            else
+                sInWin += 1
+
+    table.cell(t, 0, 2, "Window",
+         text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 2,
+         str.tostring(bInWin) + "B / " +
+         str.tostring(sInWin) + "S",
+         text_color=color.white, text_size=size.tiny)
+
+    // Totals
+    table.cell(t, 0, 3, "Total",
+         text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 3,
+         str.tostring(totalBuys) + "B / " +
+         str.tostring(totalSells) + "S",
+         text_color=color.white, text_size=size.tiny)
+
+    // Guidance
+    table.cell(t, 0, 4, "Longs",
+         text_color=color.gray, text_size=size.tiny)
+    longAdv = isBuyPhase ? "GO" :
+         isTransition ? "WAIT" : "NO"
+    longCol = isBuyPhase ? color.green :
+         isTransition ? color.yellow : color.red
+    table.cell(t, 1, 4, longAdv,
+         text_color=longCol, text_size=size.tiny)
+
+    table.cell(t, 0, 5, "Shorts",
+         text_color=color.gray, text_size=size.tiny)
+    shortAdv = isSellPhase ? "GO" :
+         isTransition ? "WAIT" : "NO"
+    shortCol = isSellPhase ? color.green :
+         isTransition ? color.yellow : color.red
+    table.cell(t, 1, 5, shortAdv,
+         text_color=shortCol, text_size=size.tiny)
+
+    // RSI
+    table.cell(t, 0, 6, "RSI",
+         text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 6, str.tostring(rsiVal, "#.#"),
+         text_color=color.white, text_size=size.tiny)

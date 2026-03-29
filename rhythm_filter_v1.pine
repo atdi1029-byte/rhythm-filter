@@ -1,0 +1,310 @@
+// Rhythm Filter v1 — Meta-indicator for RSI Trendline Breakout v8
+// Scores buy signals based on gap timing, seasonality, RSI zone, and volume
+// Use alongside v8 indicator — green = take the trade, red = skip it
+//
+// Findings from 6 years of BTC 4H backtesting (76 signals):
+//   - Back-to-back signals (< 2 days): 78.6% win rate
+//   - 5-10 day gap signals: 20% win rate (TRAPS)
+//   - July/Sep/Oct/Mar: strongest months
+//   - Aug/Nov: weakest months (17% win rate)
+//   - RSI 28-35 or 42-50 at signal: ~70% win rate
+//   - RSI 35-42 at signal: only 44%
+//   - Volume > 1.5x average: 69% win rate
+
+//@version=5
+indicator("Rhythm Filter v1", overlay=false, precision=1)
+
+// ============================================================
+// V8 RSI TRENDLINE BREAKOUT DETECTION (built-in)
+// ============================================================
+
+// --- Inputs ---
+rsiLength     = input.int(14,   "RSI Length")
+pivotStrength = input.int(3,    "Pivot Strength")
+touchSens     = input.float(4.0,"Touch Sensitivity")
+minTouches    = input.int(2,    "Min Touches")
+minBars       = input.int(15,   "Min Bars Since Anchor1")
+startLevel    = input.float(60, "Start Level (Anchor1)")
+maxSignals    = input.int(2,    "Max Signals per Trendline")
+oversoldLevel = input.float(30, "Oversold Level")
+maxBreakRsi   = input.float(50, "Max Breakout RSI")
+lookbackBars  = input.int(20,   "Oversold Lookback")
+volMaLen      = input.int(20,   "Volume MA Length")
+volThresh     = input.float(0.7,"Volume Threshold")
+macdFast      = input.int(12,   "MACD Fast")
+macdSlow      = input.int(26,   "MACD Slow")
+macdSignal    = input.int(9,    "MACD Signal")
+
+// --- Score weight inputs ---
+grpScore = "Score Weights"
+wGapClose    = input.float(2.0,  "Gap < 2 days",      group=grpScore)
+wGap10_20    = input.float(1.0,  "Gap 10-20 days",    group=grpScore)
+wGap5_10     = input.float(-3.0, "Gap 5-10 days",     group=grpScore)
+wGap20_40    = input.float(-1.0, "Gap 20-40 days",    group=grpScore)
+wMonthStrong = input.float(2.0,  "Strong month bonus", group=grpScore)
+wMonthWeak   = input.float(-3.0, "Weak month penalty", group=grpScore)
+wRsiSweet    = input.float(1.0,  "RSI sweet spot",     group=grpScore)
+wRsiDead     = input.float(-1.0, "RSI dead zone",      group=grpScore)
+wVolHigh     = input.float(1.0,  "High volume bonus",  group=grpScore)
+scoreThresh  = input.float(0.0,  "Min score to take",  group=grpScore)
+
+// --- Indicators ---
+rsiVal     = ta.rsi(close, rsiLength)
+[macdLine, sigLine, histLine] = ta.macd(close, macdFast, macdSlow, macdSignal)
+volMa      = ta.sma(volume, volMaLen)
+volRatio   = volume / volMa
+
+// --- Pivot detection ---
+pivotHigh  = ta.pivothigh(rsiVal, pivotStrength, pivotStrength)
+
+// --- Trendline state (persistent) ---
+var float  anchor1Rsi       = na
+var int    anchor1Bar       = na
+var float  anchor2Rsi       = na
+var int    anchor2Bar       = na
+var int    touchCount       = 0
+var bool   trendlineActive  = false
+var int    signalCount      = 0
+var int    barsSinceCross   = 100
+var int    lastSignalBar    = na
+var float  lastSignalTime   = na
+var float  rhythmScore      = na
+var int    totalSignals     = 0
+
+// --- Helper: trendline value at a bar ---
+trendVal(int atBar) =>
+    if na(anchor1Bar) or na(anchor2Bar) or anchor1Bar == anchor2Bar
+        float(na)
+    else
+        slope = (anchor2Rsi - anchor1Rsi) / (anchor2Bar - anchor1Bar)
+        anchor1Rsi + slope * (atBar - anchor1Bar)
+
+// --- Process pivots and trendline ---
+curBar = bar_index
+
+// ANCHOR 1: pivot at/above startLevel
+if not na(pivotHigh)
+    pvBar = curBar - pivotStrength
+    pvRsi = pivotHigh
+    if pvRsi >= startLevel
+        tAtPivot = trendVal(pvBar)
+        shouldReset = not trendlineActive or na(tAtPivot) or pvRsi > tAtPivot
+        if shouldReset or (na(anchor1Rsi) or pvRsi > anchor1Rsi)
+            if shouldReset
+                anchor1Rsi      := pvRsi
+                anchor1Bar      := pvBar
+                anchor2Rsi      := na
+                anchor2Bar      := na
+                touchCount      := 1
+                trendlineActive := false
+                signalCount     := 0
+                barsSinceCross  := 100
+
+// ANCHOR 2: lower pivot
+if not na(pivotHigh)
+    pvBar2 = curBar - pivotStrength
+    pvRsi2 = pivotHigh
+    if not na(anchor1Bar) and na(anchor2Bar)
+        if pvRsi2 < startLevel and pvRsi2 < anchor1Rsi
+            anchor2Rsi      := pvRsi2
+            anchor2Bar      := pvBar2
+            trendlineActive := true
+            touchCount      := 2
+
+// COUNT TOUCHES
+if not na(pivotHigh) and trendlineActive
+    pvBar3 = curBar - pivotStrength
+    pvRsi3 = pivotHigh
+    if pvRsi3 < startLevel
+        expected = trendVal(pvBar3)
+        if not na(expected)
+            if pvRsi3 >= expected - touchSens and pvRsi3 <= expected + touchSens
+                touchCount += 1
+            else if pvRsi3 < anchor2Rsi
+                anchor2Rsi := pvRsi3
+                anchor2Bar := pvBar3
+                touchCount += 1
+
+// BREAKOUT DETECTION
+curTrend  = trendVal(curBar)
+prevTrend = trendVal(curBar - 1)
+
+if not na(curTrend) and not na(prevTrend) and not na(rsiVal[1])
+    justCrossed = rsiVal > curTrend and rsiVal[1] <= prevTrend
+    if justCrossed
+        barsSinceCross := 0
+    else
+        barsSinceCross += 1
+else
+    barsSinceCross += 1
+
+crossedAbove = barsSinceCross <= 5 and not na(curTrend) and rsiVal > curTrend
+
+barsElapsed = not na(anchor1Bar) ? curBar - anchor1Bar : 0
+validTime   = barsElapsed >= minBars
+
+// Oversold check
+wasOversold = ta.lowest(rsiVal, lookbackBars) < oversoldLevel
+
+// Buy zone
+inBuyZone = rsiVal >= (oversoldLevel - 2) and rsiVal < maxBreakRsi
+
+// MACD rising 3 bars
+macdConf = histLine > histLine[1] and histLine[1] > histLine[2]
+
+// Volume confirmation
+volConf = volume >= volMa * volThresh
+
+// === BUY SIGNAL ===
+buySignal = trendlineActive and crossedAbove and validTime and
+            touchCount >= minTouches and wasOversold and inBuyZone and
+            signalCount < maxSignals and macdConf and volConf
+
+// ============================================================
+// RHYTHM SCORING
+// ============================================================
+
+if buySignal
+    signalCount += 1
+    barsSinceCross := 100
+    totalSignals += 1
+
+    // Calculate score
+    score = 0.0
+
+    // 1. GAP since last signal
+    if not na(lastSignalTime)
+        gapHours = (time - lastSignalTime) / (1000 * 3600)
+        if gapHours < 48
+            score += wGapClose       // < 2 days: strong
+        else if gapHours >= 120 and gapHours < 240
+            score += wGap5_10        // 5-10 days: danger
+        else if gapHours >= 240 and gapHours < 480
+            score += wGap10_20       // 10-20 days: strong
+        else if gapHours >= 480 and gapHours < 960
+            score += wGap20_40       // 20-40 days: weak
+
+    // 2. MONTHLY SEASONALITY
+    m = month(time)
+    isStrongMonth = m == 3 or m == 7 or m == 9 or m == 10  // Mar,Jul,Sep,Oct
+    isWeakMonth   = m == 8 or m == 11                       // Aug,Nov
+    if isStrongMonth
+        score += wMonthStrong
+    if isWeakMonth
+        score += wMonthWeak
+
+    // 3. RSI ZONE
+    if rsiVal >= 28 and rsiVal < 35
+        score += wRsiSweet           // Deep oversold: strong
+    else if rsiVal >= 42 and rsiVal < 50
+        score += wRsiSweet           // Upper zone: strong
+    else if rsiVal >= 35 and rsiVal < 42
+        score += wRsiDead            // Dead zone: weak
+
+    // 4. VOLUME
+    if volRatio >= 1.5
+        score += wVolHigh
+
+    rhythmScore      := score
+    lastSignalBar    := curBar
+    lastSignalTime   := time
+
+// ============================================================
+// DISPLAY
+// ============================================================
+
+// Rhythm score histogram (only shows value on signal bars)
+scoreColor = rhythmScore >= scoreThresh ? color.new(#00E676, 0) :
+             color.new(#FF1744, 0)
+
+// Plot score as columns on signal bars
+plot(buySignal ? rhythmScore : na, "Rhythm Score",
+     color=scoreColor, style=plot.style_columns, linewidth=4)
+
+// Zero line
+hline(0, "Zero", color=color.gray, linestyle=hline.style_dotted)
+hline(scoreThresh, "Threshold", color=color.yellow,
+      linestyle=hline.style_dashed)
+
+// Score label on signal
+if buySignal
+    lbl = label.new(curBar, rhythmScore,
+        text="Score: " + str.tostring(rhythmScore, "#.#") +
+             "\nRSI: " + str.tostring(rsiVal, "#.#") +
+             "\nVol: " + str.tostring(volRatio, "#.#") + "x" +
+             "\n#" + str.tostring(totalSignals),
+        style=rhythmScore >= scoreThresh ?
+              label.style_label_up : label.style_label_down,
+        color=rhythmScore >= scoreThresh ?
+              color.new(#00E676, 20) : color.new(#FF1744, 20),
+        textcolor=color.white,
+        size=size.small)
+
+// Background color for regime
+bgcolor(buySignal and rhythmScore >= scoreThresh ?
+        color.new(#00E676, 90) : buySignal ?
+        color.new(#FF1744, 90) : na,
+        title="Signal Quality")
+
+// ============================================================
+// INFO TABLE
+// ============================================================
+
+var table infoTable = table.new(position.top_right, 2, 7,
+    bgcolor=color.new(#1E1E1E, 10),
+    border_color=color.gray,
+    border_width=1)
+
+if barstate.islast
+    table.cell(infoTable, 0, 0, "Rhythm Filter v1",
+        text_color=color.white, text_size=size.small,
+        bgcolor=color.new(#333333, 0))
+    table.cell(infoTable, 1, 0, "",
+        bgcolor=color.new(#333333, 0))
+
+    table.cell(infoTable, 0, 1, "Total Signals",
+        text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 1, str.tostring(totalSignals),
+        text_color=color.white, text_size=size.tiny)
+
+    table.cell(infoTable, 0, 2, "Last Score",
+        text_color=color.gray, text_size=size.tiny)
+    scoreStr = na(rhythmScore) ? "—" : str.tostring(rhythmScore, "#.#")
+    table.cell(infoTable, 1, 2, scoreStr,
+        text_color=rhythmScore >= scoreThresh ?
+            color.green : color.red,
+        text_size=size.tiny)
+
+    table.cell(infoTable, 0, 3, "Threshold",
+        text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 3, str.tostring(scoreThresh, "#.#"),
+        text_color=color.yellow, text_size=size.tiny)
+
+    curMonth = month(time)
+    monthName = curMonth == 1 ? "Jan" : curMonth == 2 ? "Feb" :
+                curMonth == 3 ? "Mar" : curMonth == 4 ? "Apr" :
+                curMonth == 5 ? "May" : curMonth == 6 ? "Jun" :
+                curMonth == 7 ? "Jul" : curMonth == 8 ? "Aug" :
+                curMonth == 9 ? "Sep" : curMonth == 10 ? "Oct" :
+                curMonth == 11 ? "Nov" : "Dec"
+    mStrong = curMonth == 3 or curMonth == 7 or
+              curMonth == 9 or curMonth == 10
+    mWeak   = curMonth == 8 or curMonth == 11
+    mLabel  = mStrong ? "STRONG" : mWeak ? "WEAK" : "NEUTRAL"
+
+    table.cell(infoTable, 0, 4, "Month",
+        text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 4, monthName + " (" + mLabel + ")",
+        text_color=mStrong ? color.green :
+            mWeak ? color.red : color.gray,
+        text_size=size.tiny)
+
+    table.cell(infoTable, 0, 5, "Gap Scoring",
+        text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 5, "<2d=GO  5-10d=SKIP",
+        text_color=color.white, text_size=size.tiny)
+
+    table.cell(infoTable, 0, 6, "RSI Zones",
+        text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 6, "28-35=GO  35-42=SKIP",
+        text_color=color.white, text_size=size.tiny)

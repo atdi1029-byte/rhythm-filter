@@ -1,0 +1,619 @@
+//@version=6
+indicator("Rhythm Filter v5 — Short Signals", overlay=false,
+     precision=1)
+
+// Rhythm Filter v5 — Adds short entry markers
+// Same breathing score as v4
+// NEW: Plots short arrows when deep red peaks roll over
+// Tune the threshold until arrows match what you see
+
+// === SETTINGS ===
+grpRhy = "Rhythm"
+rsiLen = input.int(14, "RSI Length", group=grpRhy)
+buyZone = input.float(40, "Buy Zone (RSI <)",
+     group=grpRhy,
+     tooltip="RSI below this = coin in buy territory")
+sellZone = input.float(60, "Sell Zone (RSI >)",
+     group=grpRhy,
+     tooltip="RSI above this = coin in sell territory")
+
+grpShort = "Short Signal"
+shortThreshold = input.float(-3.0, "Deep Red Threshold",
+     group=grpShort, step=1.0,
+     tooltip="Score must go below this to arm a short")
+shortCooldown = input.int(12, "Cooldown (bars)",
+     group=grpShort, minval=1,
+     tooltip="Min bars between short signals")
+slPct = input.float(3.0, "Stop Loss %",
+     group=grpShort, step=0.5, minval=0.5)
+halfTpPct = input.float(5.0, "Half TP %",
+     group=grpShort, step=0.5, minval=0.5)
+
+grpSig = "Signal Sources (optional)"
+buySrc = input.source(close, "Buy Signal (v8)",
+     group=grpSig,
+     tooltip="Connect 'Signal Out' from v8 indicator")
+sellSrc = input.source(close, "Sell Signal (v3)",
+     group=grpSig,
+     tooltip="Connect 'Signal Out' from v3 indicator")
+
+// === PULL RSI FROM TOP 40 CRYPTOS BY MARKET CAP ===
+tf = timeframe.period
+
+// Original 20
+btcRsi  = request.security("BINANCE:BTCUSDT",  tf,
+     ta.rsi(close, rsiLen))
+ethRsi  = request.security("BINANCE:ETHUSDT",  tf,
+     ta.rsi(close, rsiLen))
+xrpRsi  = request.security("BINANCE:XRPUSDT",  tf,
+     ta.rsi(close, rsiLen))
+bnbRsi  = request.security("BINANCE:BNBUSDT",  tf,
+     ta.rsi(close, rsiLen))
+solRsi  = request.security("BINANCE:SOLUSDT",  tf,
+     ta.rsi(close, rsiLen))
+dogeRsi = request.security("BINANCE:DOGEUSDT", tf,
+     ta.rsi(close, rsiLen))
+adaRsi  = request.security("BINANCE:ADAUSDT",  tf,
+     ta.rsi(close, rsiLen))
+trxRsi  = request.security("BINANCE:TRXUSDT",  tf,
+     ta.rsi(close, rsiLen))
+avaxRsi = request.security("BINANCE:AVAXUSDT", tf,
+     ta.rsi(close, rsiLen))
+shibRsi = request.security("BINANCE:SHIBUSDT", tf,
+     ta.rsi(close, rsiLen))
+tonRsi  = request.security("BINANCE:TONUSDT",  tf,
+     ta.rsi(close, rsiLen))
+linkRsi = request.security("BINANCE:LINKUSDT", tf,
+     ta.rsi(close, rsiLen))
+suiRsi  = request.security("BINANCE:SUIUSDT",  tf,
+     ta.rsi(close, rsiLen))
+dotRsi  = request.security("BINANCE:DOTUSDT",  tf,
+     ta.rsi(close, rsiLen))
+nearRsi = request.security("BINANCE:NEARUSDT", tf,
+     ta.rsi(close, rsiLen))
+uniRsi  = request.security("BINANCE:UNIUSDT",  tf,
+     ta.rsi(close, rsiLen))
+aptRsi  = request.security("BINANCE:APTUSDT",  tf,
+     ta.rsi(close, rsiLen))
+polRsi  = request.security("BINANCE:POLUSDT",  tf,
+     ta.rsi(close, rsiLen))
+arbRsi  = request.security("BINANCE:ARBUSDT",  tf,
+     ta.rsi(close, rsiLen))
+opRsi   = request.security("BINANCE:OPUSDT",   tf,
+     ta.rsi(close, rsiLen))
+
+// New 15
+icpRsi   = request.security("BINANCE:ICPUSDT",   tf,
+     ta.rsi(close, rsiLen))
+hbarRsi  = request.security("BINANCE:HBARUSDT",  tf,
+     ta.rsi(close, rsiLen))
+filRsi   = request.security("BINANCE:FILUSDT",   tf,
+     ta.rsi(close, rsiLen))
+atomRsi  = request.security("BINANCE:ATOMUSDT",  tf,
+     ta.rsi(close, rsiLen))
+imxRsi   = request.security("BINANCE:IMXUSDT",   tf,
+     ta.rsi(close, rsiLen))
+injRsi   = request.security("BINANCE:INJUSDT",   tf,
+     ta.rsi(close, rsiLen))
+stxRsi   = request.security("BINANCE:STXUSDT",   tf,
+     ta.rsi(close, rsiLen))
+ftmRsi   = request.security("BINANCE:SUSDT",     tf,
+     ta.rsi(close, rsiLen))
+grtRsi   = request.security("BINANCE:GRTUSDT",   tf,
+     ta.rsi(close, rsiLen))
+thetaRsi = request.security("BINANCE:THETAUSDT", tf,
+     ta.rsi(close, rsiLen))
+algoRsi  = request.security("BINANCE:ALGOUSDT",  tf,
+     ta.rsi(close, rsiLen))
+ldoRsi   = request.security("BINANCE:LDOUSDT",   tf,
+     ta.rsi(close, rsiLen))
+aaveRsi  = request.security("BINANCE:AAVEUSDT",  tf,
+     ta.rsi(close, rsiLen))
+mkrRsi   = request.security("BINANCE:SKYUSDT",   tf,
+     ta.rsi(close, rsiLen))
+snxRsi   = request.security("BINANCE:SNXUSDT",   tf,
+     ta.rsi(close, rsiLen))
+
+// Final 5
+vetRsi   = request.security("BINANCE:VETUSDT",   tf,
+     ta.rsi(close, rsiLen))
+xlmRsi   = request.security("BINANCE:XLMUSDT",   tf,
+     ta.rsi(close, rsiLen))
+pepeRsi  = request.security("BINANCE:PEPEUSDT",  tf,
+     ta.rsi(close, rsiLen))
+fetRsi   = request.security("BINANCE:FETUSDT",   tf,
+     ta.rsi(close, rsiLen))
+eosRsi   = request.security("BINANCE:WLDUSDT",   tf,
+     ta.rsi(close, rsiLen))
+
+// === SCORE EACH COIN ===
+TOTAL_COINS = 40
+
+scoreIt(float rsi) =>
+    rsi < buyZone ? 1 :
+     rsi > sellZone ? -1 : 0
+
+btcScore  = scoreIt(btcRsi)
+ethScore  = scoreIt(ethRsi)
+xrpScore  = scoreIt(xrpRsi)
+bnbScore  = scoreIt(bnbRsi)
+solScore  = scoreIt(solRsi)
+dogeScore = scoreIt(dogeRsi)
+adaScore  = scoreIt(adaRsi)
+trxScore  = scoreIt(trxRsi)
+avaxScore = scoreIt(avaxRsi)
+shibScore = scoreIt(shibRsi)
+tonScore  = scoreIt(tonRsi)
+linkScore = scoreIt(linkRsi)
+suiScore  = scoreIt(suiRsi)
+dotScore  = scoreIt(dotRsi)
+nearScore = scoreIt(nearRsi)
+uniScore  = scoreIt(uniRsi)
+aptScore  = scoreIt(aptRsi)
+polScore  = scoreIt(polRsi)
+arbScore  = scoreIt(arbRsi)
+opScore   = scoreIt(opRsi)
+icpScore   = scoreIt(icpRsi)
+hbarScore  = scoreIt(hbarRsi)
+filScore   = scoreIt(filRsi)
+atomScore  = scoreIt(atomRsi)
+imxScore   = scoreIt(imxRsi)
+injScore   = scoreIt(injRsi)
+stxScore   = scoreIt(stxRsi)
+ftmScore   = scoreIt(ftmRsi)
+grtScore   = scoreIt(grtRsi)
+thetaScore = scoreIt(thetaRsi)
+algoScore  = scoreIt(algoRsi)
+ldoScore   = scoreIt(ldoRsi)
+aaveScore  = scoreIt(aaveRsi)
+mkrScore   = scoreIt(mkrRsi)
+snxScore   = scoreIt(snxRsi)
+vetScore   = scoreIt(vetRsi)
+xlmScore   = scoreIt(xlmRsi)
+pepeScore  = scoreIt(pepeRsi)
+fetScore   = scoreIt(fetRsi)
+eosScore   = scoreIt(eosRsi)
+
+// === COMPOSITE BREATHING SCORE ===
+rawScore = btcScore + ethScore + xrpScore +
+     bnbScore + solScore + dogeScore +
+     adaScore + trxScore + avaxScore +
+     shibScore + tonScore + linkScore +
+     suiScore + dotScore + nearScore +
+     uniScore + aptScore + polScore +
+     arbScore + opScore +
+     icpScore + hbarScore + filScore +
+     atomScore + imxScore + injScore +
+     stxScore + ftmScore + grtScore +
+     thetaScore + algoScore + ldoScore +
+     aaveScore + mkrScore + snxScore +
+     vetScore + xlmScore + pepeScore +
+     fetScore + eosScore
+
+normalizedScore = rawScore * 20.0 / TOTAL_COINS
+breathScore = ta.ema(normalizedScore, 9)
+
+// Count buy-zone and sell-zone coins
+buyCount = 0
+buyCount += btcRsi < buyZone ? 1 : 0
+buyCount += ethRsi < buyZone ? 1 : 0
+buyCount += xrpRsi < buyZone ? 1 : 0
+buyCount += bnbRsi < buyZone ? 1 : 0
+buyCount += solRsi < buyZone ? 1 : 0
+buyCount += dogeRsi < buyZone ? 1 : 0
+buyCount += adaRsi < buyZone ? 1 : 0
+buyCount += trxRsi < buyZone ? 1 : 0
+buyCount += avaxRsi < buyZone ? 1 : 0
+buyCount += shibRsi < buyZone ? 1 : 0
+buyCount += tonRsi < buyZone ? 1 : 0
+buyCount += linkRsi < buyZone ? 1 : 0
+buyCount += suiRsi < buyZone ? 1 : 0
+buyCount += dotRsi < buyZone ? 1 : 0
+buyCount += nearRsi < buyZone ? 1 : 0
+buyCount += uniRsi < buyZone ? 1 : 0
+buyCount += aptRsi < buyZone ? 1 : 0
+buyCount += polRsi < buyZone ? 1 : 0
+buyCount += arbRsi < buyZone ? 1 : 0
+buyCount += opRsi < buyZone ? 1 : 0
+buyCount += icpRsi < buyZone ? 1 : 0
+buyCount += hbarRsi < buyZone ? 1 : 0
+buyCount += filRsi < buyZone ? 1 : 0
+buyCount += atomRsi < buyZone ? 1 : 0
+buyCount += imxRsi < buyZone ? 1 : 0
+buyCount += injRsi < buyZone ? 1 : 0
+buyCount += stxRsi < buyZone ? 1 : 0
+buyCount += ftmRsi < buyZone ? 1 : 0
+buyCount += grtRsi < buyZone ? 1 : 0
+buyCount += thetaRsi < buyZone ? 1 : 0
+buyCount += algoRsi < buyZone ? 1 : 0
+buyCount += ldoRsi < buyZone ? 1 : 0
+buyCount += aaveRsi < buyZone ? 1 : 0
+buyCount += mkrRsi < buyZone ? 1 : 0
+buyCount += snxRsi < buyZone ? 1 : 0
+buyCount += vetRsi < buyZone ? 1 : 0
+buyCount += xlmRsi < buyZone ? 1 : 0
+buyCount += pepeRsi < buyZone ? 1 : 0
+buyCount += fetRsi < buyZone ? 1 : 0
+buyCount += eosRsi < buyZone ? 1 : 0
+
+sellCount = 0
+sellCount += btcRsi > sellZone ? 1 : 0
+sellCount += ethRsi > sellZone ? 1 : 0
+sellCount += xrpRsi > sellZone ? 1 : 0
+sellCount += bnbRsi > sellZone ? 1 : 0
+sellCount += solRsi > sellZone ? 1 : 0
+sellCount += dogeRsi > sellZone ? 1 : 0
+sellCount += adaRsi > sellZone ? 1 : 0
+sellCount += trxRsi > sellZone ? 1 : 0
+sellCount += avaxRsi > sellZone ? 1 : 0
+sellCount += shibRsi > sellZone ? 1 : 0
+sellCount += tonRsi > sellZone ? 1 : 0
+sellCount += linkRsi > sellZone ? 1 : 0
+sellCount += suiRsi > sellZone ? 1 : 0
+sellCount += dotRsi > sellZone ? 1 : 0
+sellCount += nearRsi > sellZone ? 1 : 0
+sellCount += uniRsi > sellZone ? 1 : 0
+sellCount += aptRsi > sellZone ? 1 : 0
+sellCount += polRsi > sellZone ? 1 : 0
+sellCount += arbRsi > sellZone ? 1 : 0
+sellCount += opRsi > sellZone ? 1 : 0
+sellCount += icpRsi > sellZone ? 1 : 0
+sellCount += hbarRsi > sellZone ? 1 : 0
+sellCount += filRsi > sellZone ? 1 : 0
+sellCount += atomRsi > sellZone ? 1 : 0
+sellCount += imxRsi > sellZone ? 1 : 0
+sellCount += injRsi > sellZone ? 1 : 0
+sellCount += stxRsi > sellZone ? 1 : 0
+sellCount += ftmRsi > sellZone ? 1 : 0
+sellCount += grtRsi > sellZone ? 1 : 0
+sellCount += thetaRsi > sellZone ? 1 : 0
+sellCount += algoRsi > sellZone ? 1 : 0
+sellCount += ldoRsi > sellZone ? 1 : 0
+sellCount += aaveRsi > sellZone ? 1 : 0
+sellCount += mkrRsi > sellZone ? 1 : 0
+sellCount += snxRsi > sellZone ? 1 : 0
+sellCount += vetRsi > sellZone ? 1 : 0
+sellCount += xlmRsi > sellZone ? 1 : 0
+sellCount += pepeRsi > sellZone ? 1 : 0
+sellCount += fetRsi > sellZone ? 1 : 0
+sellCount += eosRsi > sellZone ? 1 : 0
+
+// === DETECT YOUR SIGNALS ===
+buyFired  = buySrc > 0.5 and buySrc[1] < 0.5
+sellFired = sellSrc > 0.5 and sellSrc[1] < 0.5
+
+// === PER-COIN CYCLE ===
+coinCycle = syminfo.basecurrency == "BTC"  ? 19.2 :
+     syminfo.basecurrency == "ETH"  ? 18.5 :
+     syminfo.basecurrency == "XRP"  ? 19.8 :
+     syminfo.basecurrency == "BNB"  ? 19.0 :
+     syminfo.basecurrency == "SOL"  ? 17.8 :
+     syminfo.basecurrency == "DOGE" ? 22.0 :
+     syminfo.basecurrency == "ADA"  ? 18.3 :
+     syminfo.basecurrency == "TRX"  ? 22.5 :
+     syminfo.basecurrency == "AVAX" ? 15.2 :
+     syminfo.basecurrency == "SHIB" ? 19.2 :
+     syminfo.basecurrency == "TON"  ? 25.0 :
+     syminfo.basecurrency == "LINK" ? 17.2 :
+     syminfo.basecurrency == "SUI"  ? 18.0 :
+     syminfo.basecurrency == "DOT"  ? 19.0 :
+     syminfo.basecurrency == "NEAR" ? 24.8 :
+     syminfo.basecurrency == "UNI"  ? 20.7 :
+     syminfo.basecurrency == "APT"  ? 15.7 :
+     syminfo.basecurrency == "POL"  ? 16.0 :
+     syminfo.basecurrency == "ARB"  ? 20.8 :
+     syminfo.basecurrency == "OP"   ? 23.2 :
+     syminfo.basecurrency == "ICP"  ? 22.2 :
+     syminfo.basecurrency == "HBAR" ? 25.7 :
+     syminfo.basecurrency == "FIL"  ? 24.2 :
+     syminfo.basecurrency == "ATOM" ? 20.2 :
+     syminfo.basecurrency == "IMX"  ? 19.3 :
+     syminfo.basecurrency == "INJ"  ? 27.5 :
+     syminfo.basecurrency == "STX"  ? 23.7 :
+     syminfo.basecurrency == "FTM"  ? 21.5 :
+     syminfo.basecurrency == "S"    ? 21.5 :
+     syminfo.basecurrency == "GRT"  ? 18.2 :
+     syminfo.basecurrency == "THETA"? 26.0 :
+     syminfo.basecurrency == "ALGO" ? 20.7 :
+     syminfo.basecurrency == "LDO"  ? 21.0 :
+     syminfo.basecurrency == "AAVE" ? 21.5 :
+     syminfo.basecurrency == "MKR"  ? 25.9 :
+     syminfo.basecurrency == "SKY"  ? 25.9 :
+     syminfo.basecurrency == "SNX"  ? 25.0 :
+     syminfo.basecurrency == "VET"  ? 27.0 :
+     syminfo.basecurrency == "XLM"  ? 22.8 :
+     syminfo.basecurrency == "PEPE" ? 31.2 :
+     syminfo.basecurrency == "FET"  ? 20.2 :
+     syminfo.basecurrency == "WLD"  ? 18.0 :
+     18.0
+
+// === REST DETECTION ===
+barsSinceLastSell = ta.barssince(sellFired[1])
+barsSinceLastBuy  = ta.barssince(buyFired[1])
+barsPerDay = 86400 / timeframe.in_seconds()
+restBars   = math.round(5 * barsPerDay)
+cycleBars  = math.round(coinCycle * barsPerDay)
+
+buyIsRested  = na(barsSinceLastSell) or
+     barsSinceLastSell >= restBars
+sellIsRested = na(barsSinceLastBuy) or
+     barsSinceLastBuy >= restBars
+
+buySinceDays  = na(barsSinceLastSell) ? 99.0 :
+     barsSinceLastSell / barsPerDay
+sellSinceDays = na(barsSinceLastBuy) ? 99.0 :
+     barsSinceLastBuy / barsPerDay
+buyCycleDays  = na(barsSinceLastBuy) ? 99.0 :
+     barsSinceLastBuy / barsPerDay
+sellCycleDays = na(barsSinceLastSell) ? 99.0 :
+     barsSinceLastSell / barsPerDay
+
+buyFullCycle  = na(barsSinceLastBuy) or
+     barsSinceLastBuy >= math.round(coinCycle * 0.7 *
+     barsPerDay)
+sellFullCycle = na(barsSinceLastSell) or
+     barsSinceLastSell >= math.round(coinCycle * 0.7 *
+     barsPerDay)
+
+// === PHASE CLASSIFICATION ===
+isBuyPhase  = breathScore >= 5
+isSellPhase = breathScore <= -5
+isNeutral   = not isBuyPhase and not isSellPhase
+
+// === PHASE AGE ===
+inhaleStart = isBuyPhase and not isBuyPhase[1]
+exhaleStart = isSellPhase and not isSellPhase[1]
+barsInInhale = ta.barssince(inhaleStart)
+barsInExhale = ta.barssince(exhaleStart)
+phaseAgeDays = isBuyPhase ?
+     (na(barsInInhale) ? 0.0 : barsInInhale / barsPerDay) :
+     isSellPhase ?
+     (na(barsInExhale) ? 0.0 : barsInExhale / barsPerDay) :
+     0.0
+inhaleExpect = 14.0
+exhaleExpect = 13.0
+phaseExpect = isBuyPhase ? inhaleExpect :
+     isSellPhase ? exhaleExpect : 0.0
+phaseLate = phaseExpect > 0 and phaseAgeDays > phaseExpect * 0.7
+
+// ============================================================
+// === SHORT SIGNAL DETECTION ===
+// ============================================================
+// Logic:
+// 1. Score was positive (green) recently
+// 2. Score drops below threshold (armed)
+// 3. Score curls up while still negative = SHORT
+// Filter: must have been green before — kills false shorts
+
+var bool wasGreen = false
+var float recentPeak = 0.0
+var bool shortArmed = false
+var float troughVal = 0.0
+var int lastShortBar = 0
+
+// Track if score went positive (any green = re-arm)
+if breathScore > 0
+    wasGreen := true
+    if breathScore > recentPeak
+        recentPeak := breathScore
+
+// Arm when score drops below threshold AND we saw green
+if breathScore < shortThreshold and wasGreen
+    shortArmed := true
+    if breathScore < troughVal
+        troughVal := breathScore
+
+// Detect rollover: score starts rising while armed
+shortFired = false
+if shortArmed and breathScore > breathScore[1]
+     and breathScore[1] <= breathScore[2]
+     and breathScore < 0
+     and (bar_index - lastShortBar) >= shortCooldown
+    shortFired := true
+    shortArmed := false
+    lastShortBar := bar_index
+    troughVal := 0.0
+    wasGreen := false      // must see green again before next SHORT
+    recentPeak := 0.0
+
+// Disarm if score goes back above 0 without firing
+if shortArmed and breathScore > 0
+    shortArmed := false
+    troughVal := 0.0
+    wasGreen := false
+    recentPeak := 0.0
+
+// === DISPLAY ===
+
+// Main breathing score
+scoreColor = breathScore > 5 ?
+     color.new(#00E676, 0) :
+     breathScore > 0 ?
+     color.new(#81C784, 0) :
+     breathScore < -5 ?
+     color.new(#FF1744, 0) :
+     breathScore < 0 ?
+     color.new(#EF9A9A, 0) :
+     color.new(#FFD600, 0)
+
+plot(breathScore, "Breathing Score",
+     color=scoreColor, linewidth=3,
+     style=plot.style_area)
+
+// Reference lines
+hline(10, "Strong Buy",
+     color=color.new(#00E676, 60),
+     linestyle=hline.style_dotted)
+hline(5, "Buy Zone",
+     color=color.new(#00E676, 70),
+     linestyle=hline.style_dashed)
+hline(0, "Neutral",
+     color=color.new(#666666, 50),
+     linestyle=hline.style_dotted)
+hline(-5, "Sell Zone",
+     color=color.new(#FF1744, 70),
+     linestyle=hline.style_dashed)
+hline(-10, "Strong Sell",
+     color=color.new(#FF1744, 60),
+     linestyle=hline.style_dotted)
+
+// Background
+bgcolor(isBuyPhase ?
+     color.new(#00E676, 92) :
+     isSellPhase ?
+     color.new(#FF1744, 92) : na,
+     title="Phase BG")
+
+// === SHORT SIGNAL ARROW ===
+plotshape(shortFired, title="SHORT",
+     location=location.top,
+     style=shape.triangledown,
+     size=size.normal,
+     color=color.new(#FF6D00, 0),
+     text="SHORT")
+
+// Alert (legacy)
+alertcondition(shortFired,
+     title="Breathing Short Signal",
+     message="Rhythm Filter: Deep red rollover — SHORT signal")
+
+// Webhook alert with JSON payload for bot
+if shortFired
+    alert('{"signal":"SHORT","score":' +
+         str.tostring(breathScore, "#.##") +
+         ',"buyZone":' + str.tostring(buyCount) +
+         ',"sellZone":' + str.tostring(sellCount) +
+         ',"raw":' + str.tostring(normalizedScore, "#.##") +
+         '}', alert.freq_once_per_bar)
+
+// === SL/TP OUTPUT FOR OVERLAY ===
+// These plots can be read by a companion overlay indicator
+plot(shortFired ? close : na, "Entry Price",
+     display=display.data_window)
+plot(shortFired ? close * (1 + slPct / 100) : na,
+     "SL Price", display=display.data_window)
+plot(shortFired ? close * (1 - halfTpPct / 100) : na,
+     "TP Price", display=display.data_window)
+
+// === INFO TABLE ===
+var table t = table.new(position.top_right, 2, 10,
+     bgcolor=color.new(#1E1E1E, 10),
+     border_color=color.gray, border_width=1)
+
+if barstate.islast
+    // Title
+    table.cell(t, 0, 0, "Market Breathing",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=color.new(#333333, 0))
+    phase = isBuyPhase ? "INHALE" :
+         isSellPhase ? "EXHALE" :
+         "BETWEEN"
+    phCol = isBuyPhase ? color.green :
+         isSellPhase ? color.red :
+         color.yellow
+    table.cell(t, 1, 0, phase,
+         text_color=phCol,
+         text_size=size.small,
+         bgcolor=color.new(#333333, 0))
+
+    // Score
+    table.cell(t, 0, 1, "Score",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 1,
+         str.tostring(breathScore, "#.#"),
+         text_color=phCol,
+         text_size=size.tiny)
+
+    // Buy zone coins
+    table.cell(t, 0, 2, "Buy Zone",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 2,
+         str.tostring(buyCount) + "/40",
+         text_color=color.green,
+         text_size=size.tiny)
+
+    // Sell zone coins
+    table.cell(t, 0, 3, "Sell Zone",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 3,
+         str.tostring(sellCount) + "/40",
+         text_color=color.red,
+         text_size=size.tiny)
+
+    // Guidance
+    table.cell(t, 0, 4, "Longs",
+         text_color=color.gray,
+         text_size=size.tiny)
+    longAdv = isBuyPhase ? "GO" :
+         isNeutral ? "WAIT" : "NO"
+    longCol = isBuyPhase ? color.green :
+         isNeutral ? color.yellow : color.red
+    table.cell(t, 1, 4, longAdv,
+         text_color=longCol,
+         text_size=size.tiny)
+
+    table.cell(t, 0, 5, "Shorts",
+         text_color=color.gray,
+         text_size=size.tiny)
+    shortAdv = isSellPhase ? "GO" :
+         isNeutral ? "WAIT" : "NO"
+    shortCol = isSellPhase ? color.green :
+         isNeutral ? color.yellow : color.red
+    table.cell(t, 1, 5, shortAdv,
+         text_color=shortCol,
+         text_size=size.tiny)
+
+    // Phase Age
+    table.cell(t, 0, 6, "Phase Age",
+         text_color=color.gray,
+         text_size=size.tiny)
+    phAgeStr = (isBuyPhase or isSellPhase) ?
+         str.tostring(phaseAgeDays, "#") + "d/" +
+         str.tostring(phaseExpect, "#") + "d" : "—"
+    phAgeCol = phaseLate ?
+         color.new(#FF9800, 0) :
+         (isBuyPhase or isSellPhase) ?
+         color.green : color.gray
+    table.cell(t, 1, 6, phAgeStr,
+         text_color=phAgeCol,
+         text_size=size.tiny)
+
+    // Cycle
+    table.cell(t, 0, 7, "Cycle",
+         text_color=color.gray,
+         text_size=size.tiny)
+    cycBuy = buyCycleDays < 99 ?
+         str.tostring(buyCycleDays, "#") + "d" : "—"
+    cycSell = sellCycleDays < 99 ?
+         str.tostring(sellCycleDays, "#") + "d" : "—"
+    cycStr = "B:" + cycBuy + " S:" + cycSell
+    cycCol = (buyFullCycle and sellFullCycle) ?
+         color.green :
+         color.new(#FF9800, 0)
+    table.cell(t, 1, 7, cycStr,
+         text_color=cycCol,
+         text_size=size.tiny)
+
+    // Expected cycle
+    table.cell(t, 0, 8, "Expect",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 8,
+         str.tostring(coinCycle, "#.#") + "d",
+         text_color=color.white,
+         text_size=size.tiny)
+
+    // Short armed status
+    table.cell(t, 0, 9, "Short",
+         text_color=color.gray,
+         text_size=size.tiny)
+    shortStatus = shortArmed ? "ARMED" : "—"
+    shortStatCol = shortArmed ?
+         color.new(#FF6D00, 0) : color.gray
+    table.cell(t, 1, 9, shortStatus,
+         text_color=shortStatCol,
+         text_size=size.tiny)

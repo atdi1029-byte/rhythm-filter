@@ -1,11 +1,9 @@
 [
-  "aaveusdt",
   "wldusdt",
   "roseusdt",
   "dgbusdt",
   "hypeusdt",
   "1inchusdt",
-  "ethusdt",
   "vthousdt",
   "neousdt",
   "btcusdt",
@@ -16,5 +14,7 @@
   "ltcusdt",
   "ontusdt",
   "tfuelusdt",
-  "paxgusdt"
+  "paxgusdt",
+  "bnbusdt",
+  "trxusdt"
 ]
