@@ -1198,6 +1198,7 @@ function renderAll() {
   renderKelly();
   renderSignalHistory();
   renderLevel();
+  drawPnlChart();
 }
 
 function renderStats() {
@@ -1865,13 +1866,17 @@ var pnlHistory = [];
 var chartRange = 'all';
 
 function fetchPnlHistory() {
-  if (!APPS_SCRIPT_URL) return;
+  if (!APPS_SCRIPT_URL) {
+    drawPnlChart();
+    return;
+  }
   jsonpFetch(
     APPS_SCRIPT_URL + '?action=get_pnl_history',
     function(err, data) {
-      if (err || !data ||
-        data.status !== 'success') return;
-      pnlHistory = data.data || [];
+      if (!err && data &&
+        data.status === 'success') {
+        pnlHistory = data.data || [];
+      }
       drawPnlChart();
     }
   );
@@ -1906,6 +1911,23 @@ function setChartRange(range, btn) {
 
 function drawPnlChart() {
   var wrap = document.getElementById('pnlChartWrap');
+
+  // Fallback: if no history but botState has trades,
+  // create a single-point entry so chart isn't empty
+  if ((!pnlHistory || pnlHistory.length === 0)
+    && botState && botState.total_trades > 0) {
+    var today = new Date().toISOString()
+      .split('T')[0];
+    pnlHistory = [{
+      date: today,
+      pnl: botState.total_pnl || 0,
+      trades: botState.total_trades || 0,
+      wr: botState.total_wins && botState.total_trades
+        ? (botState.total_wins
+          / botState.total_trades * 100) : 0
+    }];
+  }
+
   if (!pnlHistory || pnlHistory.length === 0) {
     wrap.innerHTML =
       '<div class="pnl-chart-empty">'
