@@ -183,15 +183,15 @@ function initCoinStats_(jsonStr) {
   var sheet = getOrCreateSheet_('CoinStats');
   sheet.clear();
 
-  // Header — 18 columns
-  // A-H: backtest data, I-R: live running stats
-  sheet.getRange(1, 1, 1, 18).setValues([[
+  // Header — 19 columns
+  // A-H: backtest data, I-S: live running stats
+  sheet.getRange(1, 1, 1, 19).setValues([[
     'Coin', 'Status', 'BT_WR', 'BT_PnL', 'BT_AvgPnL', 'BT_Kelly',
     'BT_MaxLS', 'BT_Trades',
     'Live_Trades', 'Live_Wins', 'Live_Losses',
     'Live_PnL', 'Live_WR', 'Live_AvgPnL',
     'Live_AvgWin', 'Live_AvgLoss', 'Live_Kelly',
-    'Live_WinSum'
+    'Live_WinSum', 'Live_FirstTrade'
   ]]);
 
   // Populate from backtest data
@@ -205,12 +205,13 @@ function initCoinStats_(jsonStr) {
       0, 0, 0,          // live trades, wins, losses
       0, 0, 0,          // live pnl, wr, avg pnl
       0, 0, 0,          // avg win, avg loss, kelly
-      0                  // win sum (for avg win calc)
+      0,                 // win sum (for avg win calc)
+      ''                 // first trade date
     ]);
   }
 
   if (rows.length > 0) {
-    sheet.getRange(2, 1, rows.length, 18).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 19).setValues(rows);
   }
 
   return { status: 'success', count: rows.length };
@@ -228,13 +229,13 @@ function appendCoinStats_(jsonStr) {
       c.coin, 'active',
       c.wr, c.pnl, c.avg_pnl, c.kelly,
       c.max_loss_streak, c.trades,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ''
     ]);
   }
 
   if (rows.length > 0) {
     var lastRow = sheet.getLastRow();
-    sheet.getRange(lastRow + 1, 1, rows.length, 18).setValues(rows);
+    sheet.getRange(lastRow + 1, 1, rows.length, 19).setValues(rows);
   }
 
   return { status: 'success', count: rows.length, total: sheet.getLastRow() - 1 };
@@ -279,12 +280,12 @@ function updateCoinRunningStats_(symbol, pnlPct, outcome) {
 
   if (rowIdx === -1) return;
 
-  // Read current live stats (cols I-R = 9-18)
-  var range = sheet.getRange(rowIdx, 9, 1, 10);
+  // Read current live stats (cols I-S = 9-19)
+  var range = sheet.getRange(rowIdx, 9, 1, 11);
   var v = range.getValues()[0];
   // v[0]=trades, v[1]=wins, v[2]=losses, v[3]=pnl,
   // v[4]=wr, v[5]=avgPnl, v[6]=avgWin, v[7]=avgLoss,
-  // v[8]=kelly, v[9]=winSum
+  // v[8]=kelly, v[9]=winSum, v[10]=firstTrade
 
   var isWin = pnlPct > 0;
   var liveTrades = v[0] + 1;
@@ -315,10 +316,13 @@ function updateCoinRunningStats_(symbol, pnlPct, outcome) {
     if (liveKelly > 1) liveKelly = 1;
   }
 
+  // Set first trade date if this is the first trade
+  var firstTrade = v[10] || new Date().toISOString();
+
   range.setValues([[
     liveTrades, liveWins, liveLosses,
     livePnl, liveWr, liveAvg,
-    avgWin, avgLoss, liveKelly, winSum
+    avgWin, avgLoss, liveKelly, winSum, firstTrade
   ]]);
 }
 

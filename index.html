@@ -507,61 +507,6 @@ a { color: var(--accent); text-decoration: none; }
   white-space: nowrap;
 }
 
-/* Projector */
-.proj-inputs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-.proj-inputs label {
-  font-size: 0.65rem;
-  color: var(--text-dim);
-  display: block;
-  margin-bottom: 0.2rem;
-}
-.proj-inputs input {
-  width: 100%;
-  padding: 0.4rem;
-  background: var(--bg-dark);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-bright);
-  font-family: inherit;
-  font-size: 0.8rem;
-}
-.proj-inputs input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-.proj-btn {
-  grid-column: span 2;
-  padding: 0.5rem;
-  background: var(--accent-dim);
-  border: none;
-  border-radius: 6px;
-  color: var(--text-bright);
-  font-weight: 700;
-  cursor: pointer;
-  font-family: inherit;
-}
-.proj-btn:hover { background: var(--accent); }
-.proj-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.8rem;
-}
-.proj-table th {
-  text-align: left;
-  color: var(--text-dim);
-  font-size: 0.65rem;
-  padding: 0.4rem;
-  border-bottom: 1px solid var(--border);
-}
-.proj-table td {
-  padding: 0.5rem 0.4rem;
-  border-bottom: 1px solid var(--border);
-}
 
 /* Signal Timeline */
 .signal-item {
@@ -814,10 +759,6 @@ a { color: var(--accent); text-decoration: none; }
   .coin-grid {
     grid-template-columns: 1fr 1fr;
   }
-  .proj-inputs {
-    grid-template-columns: 1fr;
-  }
-  .proj-btn { grid-column: span 1; }
   .level-sprite { width: 60px; height: 60px; }
 }
 </style>
@@ -982,44 +923,6 @@ a { color: var(--accent); text-decoration: none; }
   <div class="card-body" id="kellyBody">
     <div class="empty-state">
       Need 5+ trades for Kelly calculation</div>
-  </div>
-</div>
-
-<!-- Compound Growth Projector -->
-<div class="card" id="projCard">
-  <div class="card-header">
-    Growth Projector
-    <span class="toggle"
-      onclick="toggleCard('projCard')">
-      collapse</span>
-  </div>
-  <div class="card-body">
-    <div class="proj-inputs">
-      <div>
-        <label>Starting Capital ($)</label>
-        <input type="number" id="projStart"
-          value="100">
-      </div>
-      <div>
-        <label>Avg per Signal (%)</label>
-        <input type="number" id="projAvg"
-          value="0.616" step="0.001">
-      </div>
-      <div>
-        <label>Signals / Month</label>
-        <input type="number" id="projTpm"
-          value="30">
-      </div>
-      <div>
-        <label>Leverage</label>
-        <input type="number" id="projLev"
-          value="2">
-      </div>
-      <button class="proj-btn"
-        onclick="calcProjection()">
-        Calculate</button>
-    </div>
-    <div id="projResults"></div>
   </div>
 </div>
 
@@ -1281,6 +1184,9 @@ function fetchCoinStats() {
       renderCoinRoster();
       renderLivePerformance();
       renderKelly();
+      // Redraw P&L chart (fallback uses coinStats)
+      if (!tradeHistory || tradeHistory.length === 0)
+        drawPnlChart();
     }
   );
 }
@@ -1293,7 +1199,6 @@ function renderAll() {
   renderKelly();
   renderSignalHistory();
   renderLevel();
-  updateProjDefaults();
 }
 
 function renderStats() {
@@ -1580,6 +1485,23 @@ function renderLivePerformance() {
       + (lp >= 0 ? 'pnl-pos' : 'pnl-neg') + '">'
       + (lp >= 0 ? '+' : '') + lp.toFixed(2)
       + '%</div>';
+    // Months since first trade
+    var moStr = '';
+    if (c.Live_FirstTrade) {
+      var ft = new Date(c.Live_FirstTrade);
+      if (!isNaN(ft.getTime())) {
+        var now = new Date();
+        var mo = (now.getFullYear() - ft.getFullYear())
+          * 12 + (now.getMonth() - ft.getMonth());
+        var days = Math.floor(
+          (now - ft) / 864e5);
+        if (mo < 1)
+          moStr = days + 'd';
+        else
+          moStr = mo + 'mo';
+      }
+    }
+
     h += '<div class="lc-stats">';
     h += '<span>WR: ' + lwr.toFixed(0) + '%</span>';
     h += '<span>Trades: ' + lt + '</span>';
@@ -1587,6 +1509,10 @@ function renderLivePerformance() {
     h += '<span>Avg: '
       + (lavg >= 0 ? '+' : '')
       + lavg.toFixed(3) + '%</span>';
+    if (moStr) {
+      h += '<span style="color:var(--text-dim)">'
+        + moStr + '</span>';
+    }
     h += '</div></div>';
   }
   h += '</div>';
@@ -1872,93 +1798,6 @@ function renderLevel() {
     String(info.level));
 }
 
-// === PROJECTOR ===
-function updateProjDefaults() {
-  if (!botState) return;
-  var trades = botState.total_trades || 0;
-  var pnl = botState.total_pnl || 0;
-  if (trades > 0) {
-    document.getElementById('projAvg').value =
-      (pnl / trades).toFixed(3);
-  }
-}
-
-function calcProjection() {
-  var start = parseFloat(
-    document.getElementById('projStart').value);
-  var avg = parseFloat(
-    document.getElementById('projAvg').value);
-  var spm = parseInt(
-    document.getElementById('projTpm').value);
-  var lev = parseFloat(
-    document.getElementById('projLev').value);
-
-  if (isNaN(start) || isNaN(avg) ||
-    isNaN(spm) || isNaN(lev)) {
-    showToast('Enter valid numbers');
-    return;
-  }
-
-  // Each signal = one compounding event.
-  // Avg gain per signal on your whole account
-  // (the 0.616% already accounts for spreading
-  // across all coins — it's the net account move)
-  var gainPerSignal = avg * lev / 100;
-
-  var h = '<table class="proj-table">';
-  h += '<tr><th>Period</th><th>Capital</th>'
-    + '<th>Gain</th><th>Signals</th></tr>';
-
-  var periods = [
-    { m: 1, label: '1 Month' },
-    { m: 3, label: '3 Months' },
-    { m: 6, label: '6 Months' },
-    { m: 12, label: '1 Year' },
-    { m: 24, label: '2 Years' },
-  ];
-
-  for (var i = 0; i < periods.length; i++) {
-    var p = periods[i];
-    var totalSigs = spm * p.m;
-    // Compound: capital × (1 + gain)^n
-    var capital = start
-      * Math.pow(1 + gainPerSignal, totalSigs);
-    var gain = ((capital - start) / start * 100);
-
-    // Format nicely
-    var capStr;
-    if (capital >= 1e9)
-      capStr = '$' + (capital/1e9).toFixed(2) + 'B';
-    else if (capital >= 1e6)
-      capStr = '$' + (capital/1e6).toFixed(2) + 'M';
-    else if (capital >= 1e3)
-      capStr = '$' + (capital/1e3).toFixed(1) + 'K';
-    else
-      capStr = '$' + capital.toFixed(2);
-
-    var gainStr;
-    if (gain >= 1e6)
-      gainStr = '+' + (gain/1e6).toFixed(1) + 'M%';
-    else if (gain >= 1e3)
-      gainStr = '+' + (gain/1e3).toFixed(1) + 'K%';
-    else
-      gainStr = '+' + gain.toFixed(1) + '%';
-
-    h += '<tr>';
-    h += '<td>' + p.label + '</td>';
-    h += '<td class="pnl-pos">'
-      + capStr + '</td>';
-    h += '<td class="pnl-pos">'
-      + gainStr + '</td>';
-    h += '<td>' + totalSigs + '</td>';
-    h += '</tr>';
-  }
-  h += '</table>';
-
-  document.getElementById('projResults')
-    .innerHTML = h;
-}
-
 // === HELPERS ===
 function esc(s) {
   return String(s || '')
@@ -2053,6 +1892,16 @@ function setChartRange(range, btn) {
 function drawPnlChart() {
   var wrap = document.getElementById('pnlChartWrap');
   if (!tradeHistory || tradeHistory.length === 0) {
+    // Fallback: bar chart from CoinStats
+    if (coinStats && coinStats.length > 0) {
+      var live = coinStats.filter(function(c) {
+        return (Number(c.Live_Trades) || 0) > 0;
+      });
+      if (live.length > 0) {
+        drawCoinPnlBars(wrap, live);
+        return;
+      }
+    }
     wrap.innerHTML =
       '<div class="pnl-chart-empty">'
       + 'No closed trades yet</div>';
@@ -2218,6 +2067,114 @@ function drawPnlChart() {
     + lastPnl.toFixed(2) + '%'
     + '  (' + (trades.length) + ' trades)',
     pad.l, pad.t - 5);
+}
+
+function drawCoinPnlBars(wrap, live) {
+  // Sort by P&L descending
+  live.sort(function(a, b) {
+    return (Number(b.Live_PnL) || 0)
+      - (Number(a.Live_PnL) || 0);
+  });
+
+  var dpr = window.devicePixelRatio || 1;
+  wrap.innerHTML = '<canvas id="pnlCanvas">'
+    + '</canvas>';
+  var canvas = document.getElementById('pnlCanvas');
+  var rect = wrap.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  var W = rect.width;
+  var H = rect.height;
+  var pad = { t: 25, r: 15, b: 30, l: 50 };
+  var cw = W - pad.l - pad.r;
+  var ch = H - pad.t - pad.b;
+  var n = live.length;
+  var barW = Math.min(
+    30, (cw / n) * 0.7);
+  var gap = cw / n;
+
+  // Find min/max
+  var vals = live.map(function(c) {
+    return Number(c.Live_PnL) || 0;
+  });
+  var minV = Math.min.apply(null, vals);
+  var maxV = Math.max.apply(null, vals);
+  if (minV >= 0) minV = 0;
+  if (maxV <= 0) maxV = 0;
+  if (minV === maxV) {
+    minV -= 1; maxV += 1;
+  }
+  var rangeV = maxV - minV;
+  minV -= rangeV * 0.1;
+  maxV += rangeV * 0.1;
+
+  function yPos(v) {
+    return pad.t + (1 - (v - minV)
+      / (maxV - minV)) * ch;
+  }
+
+  // Zero line
+  ctx.strokeStyle = '#2a2418';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(pad.l, yPos(0));
+  ctx.lineTo(W - pad.r, yPos(0));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Bars
+  for (var i = 0; i < n; i++) {
+    var v = vals[i];
+    var x = pad.l + gap * i
+      + (gap - barW) / 2;
+    var y0 = yPos(0);
+    var y1 = yPos(v);
+    ctx.fillStyle = v >= 0
+      ? 'rgba(76,175,80,0.7)'
+      : 'rgba(239,83,80,0.7)';
+    ctx.fillRect(x, Math.min(y0, y1),
+      barW, Math.abs(y1 - y0));
+
+    // Coin label
+    var sym = (live[i].Coin || '')
+      .replace('usdt','').toUpperCase();
+    ctx.fillStyle = '#7a6f58';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(sym,
+      x + barW / 2, H - pad.b + 12);
+  }
+
+  // Y axis labels
+  ctx.fillStyle = '#7a6f58';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'right';
+  var steps = 4;
+  for (var s = 0; s <= steps; s++) {
+    var val = minV + (maxV - minV)
+      * (1 - s / steps);
+    var y = pad.t + (s / steps) * ch;
+    ctx.fillText(
+      (val >= 0 ? '+' : '')
+      + val.toFixed(1) + '%',
+      pad.l - 5, y + 3);
+  }
+
+  // Title
+  var totalPnl = vals.reduce(
+    function(a, b) { return a + b; }, 0);
+  ctx.fillStyle = totalPnl >= 0
+    ? '#4caf50' : '#ef5350';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('Per-Coin P&L ('
+    + n + ' coins)', pad.l, pad.t - 8);
 }
 
 // Redraw on resize
