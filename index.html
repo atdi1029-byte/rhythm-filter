@@ -669,6 +669,44 @@ a { color: var(--accent); text-decoration: none; }
   }
 }
 
+/* P&L Chart */
+.pnl-chart-wrap {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  margin-top: 0.5rem;
+}
+.pnl-chart-wrap canvas {
+  width: 100%;
+  height: 100%;
+}
+.pnl-chart-empty {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 3rem 0;
+  font-size: 0.8rem;
+}
+.chart-range-bar {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.6rem;
+}
+.chart-range-bar button {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.6rem;
+}
+.chart-range-bar button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* Toast */
 .toast {
   position: fixed;
@@ -769,6 +807,36 @@ a { color: var(--accent); text-decoration: none; }
   <div class="stat-box">
     <div class="stat-val" id="statAvg">--</div>
     <div class="stat-label">Avg/Trade</div>
+  </div>
+</div>
+
+<!-- P&L Chart -->
+<div class="card" id="pnlChartCard">
+  <div class="card-header">
+    P&L Chart
+    <span class="toggle"
+      onclick="toggleCard('pnlChartCard')">
+      collapse</span>
+  </div>
+  <div class="card-body">
+    <div class="chart-range-bar" id="chartRange">
+      <button class="active"
+        onclick="setChartRange('all',this)">
+        All</button>
+      <button
+        onclick="setChartRange('30d',this)">
+        30D</button>
+      <button
+        onclick="setChartRange('7d',this)">
+        7D</button>
+      <button
+        onclick="setChartRange('24h',this)">
+        24H</button>
+    </div>
+    <div class="pnl-chart-wrap" id="pnlChartWrap">
+      <div class="pnl-chart-empty">
+        No closed trades yet</div>
+    </div>
   </div>
 </div>
 
@@ -1823,13 +1891,218 @@ function sortRoster(s, btn) {
   renderCoinRoster();
 }
 
+// === P&L CHART ===
+var tradeHistory = [];
+var chartRange = 'all';
+
+function fetchTradeHistory() {
+  if (!APPS_SCRIPT_URL) return;
+  jsonpFetch(
+    APPS_SCRIPT_URL + '?action=get_trades&limit=500',
+    function(err, data) {
+      if (err || !data ||
+        data.status !== 'success') return;
+      tradeHistory = (data.data || []).reverse();
+      drawPnlChart();
+    }
+  );
+}
+
+function setChartRange(range, btn) {
+  chartRange = range;
+  var btns = document
+    .querySelectorAll('#chartRange button');
+  btns.forEach(function(b) {
+    b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  drawPnlChart();
+}
+
+function drawPnlChart() {
+  var wrap = document.getElementById('pnlChartWrap');
+  if (!tradeHistory || tradeHistory.length === 0) {
+    wrap.innerHTML =
+      '<div class="pnl-chart-empty">'
+      + 'No closed trades yet</div>';
+    return;
+  }
+
+  // Filter by range
+  var trades = tradeHistory;
+  if (chartRange !== 'all') {
+    var now = Date.now();
+    var ms = { '24h': 864e5, '7d': 6048e5,
+      '30d': 2592e6 };
+    var cutoff = now - (ms[chartRange] || 0);
+    trades = tradeHistory.filter(function(t) {
+      return new Date(t.Timestamp).getTime()
+        >= cutoff;
+    });
+  }
+
+  if (trades.length === 0) {
+    wrap.innerHTML =
+      '<div class="pnl-chart-empty">'
+      + 'No trades in this range</div>';
+    return;
+  }
+
+  // Build cumulative P&L
+  var cumPnl = [0];
+  var labels = ['Start'];
+  var running = 0;
+  for (var i = 0; i < trades.length; i++) {
+    running += Number(trades[i]['PnL%'] || 0);
+    cumPnl.push(running);
+    var d = new Date(trades[i].Timestamp);
+    labels.push(
+      (d.getMonth()+1) + '/' + d.getDate());
+  }
+
+  // Create canvas
+  var dpr = window.devicePixelRatio || 1;
+  wrap.innerHTML = '<canvas id="pnlCanvas">'
+    + '</canvas>';
+  var canvas = document.getElementById('pnlCanvas');
+  var rect = wrap.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  var W = rect.width;
+  var H = rect.height;
+  var pad = { t: 20, r: 15, b: 25, l: 50 };
+  var cw = W - pad.l - pad.r;
+  var ch = H - pad.t - pad.b;
+
+  // Scales
+  var minV = Math.min.apply(null, cumPnl);
+  var maxV = Math.max.apply(null, cumPnl);
+  if (minV === maxV) {
+    minV -= 1; maxV += 1;
+  }
+  var rangeV = maxV - minV;
+  minV -= rangeV * 0.1;
+  maxV += rangeV * 0.1;
+
+  function xPos(i) {
+    return pad.l + (i / (cumPnl.length - 1)) * cw;
+  }
+  function yPos(v) {
+    return pad.t + (1 - (v - minV)
+      / (maxV - minV)) * ch;
+  }
+
+  // Zero line
+  if (minV < 0 && maxV > 0) {
+    ctx.strokeStyle = '#2a2418';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(pad.l, yPos(0));
+    ctx.lineTo(W - pad.r, yPos(0));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Fill gradient
+  var lastPnl = cumPnl[cumPnl.length - 1];
+  var isUp = lastPnl >= 0;
+  var grad = ctx.createLinearGradient(
+    0, pad.t, 0, H - pad.b);
+  if (isUp) {
+    grad.addColorStop(0, 'rgba(76,175,80,0.25)');
+    grad.addColorStop(1, 'rgba(76,175,80,0)');
+  } else {
+    grad.addColorStop(0, 'rgba(239,83,80,0)');
+    grad.addColorStop(1, 'rgba(239,83,80,0.25)');
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(xPos(0), yPos(0));
+  for (var i = 0; i < cumPnl.length; i++) {
+    ctx.lineTo(xPos(i), yPos(cumPnl[i]));
+  }
+  ctx.lineTo(xPos(cumPnl.length - 1), yPos(0));
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(xPos(0), yPos(cumPnl[0]));
+  for (var i = 1; i < cumPnl.length; i++) {
+    ctx.lineTo(xPos(i), yPos(cumPnl[i]));
+  }
+  ctx.strokeStyle = isUp
+    ? '#4caf50' : '#ef5350';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // End dot
+  var ex = xPos(cumPnl.length - 1);
+  var ey = yPos(lastPnl);
+  ctx.beginPath();
+  ctx.arc(ex, ey, 4, 0, Math.PI * 2);
+  ctx.fillStyle = isUp
+    ? '#4caf50' : '#ef5350';
+  ctx.fill();
+
+  // Y axis labels
+  ctx.fillStyle = '#7a6f58';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'right';
+  var steps = 4;
+  for (var s = 0; s <= steps; s++) {
+    var val = minV + (maxV - minV)
+      * (1 - s / steps);
+    var y = pad.t + (s / steps) * ch;
+    ctx.fillText(
+      (val >= 0 ? '+' : '') + val.toFixed(1) + '%',
+      pad.l - 5, y + 3);
+  }
+
+  // X axis labels (show a few dates)
+  ctx.textAlign = 'center';
+  var xSteps = Math.min(5, labels.length - 1);
+  for (var s = 0; s <= xSteps; s++) {
+    var idx = Math.round(
+      s * (labels.length - 1) / xSteps);
+    ctx.fillText(
+      labels[idx],
+      xPos(idx), H - pad.b + 15);
+  }
+
+  // Current P&L label at top
+  ctx.fillStyle = isUp
+    ? '#4caf50' : '#ef5350';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(
+    (lastPnl >= 0 ? '+' : '')
+    + lastPnl.toFixed(2) + '%'
+    + '  (' + (trades.length) + ' trades)',
+    pad.l, pad.t - 5);
+}
+
+// Redraw on resize
+window.addEventListener('resize', function() {
+  if (tradeHistory.length > 0) drawPnlChart();
+});
+
 // === INIT ===
 fetchBotState();
 fetchCoinStats();
+fetchTradeHistory();
 
 setInterval(function() {
   fetchBotState();
   fetchCoinStats();
+  fetchTradeHistory();
 }, REFRESH_MS);
 
 document.addEventListener(
@@ -1837,6 +2110,7 @@ document.addEventListener(
     if (!document.hidden) {
       fetchBotState();
       fetchCoinStats();
+      fetchTradeHistory();
     }
   });
 
