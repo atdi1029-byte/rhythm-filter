@@ -5,7 +5,7 @@
 <meta name="viewport"
   content="width=device-width,initial-scale=1,
   maximum-scale=1,user-scalable=no">
-<meta name="theme-color" content="#0a0a12">
+<meta name="theme-color" content="#07070d">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style"
   content="black-translucent">
@@ -14,18 +14,21 @@
 <title>RhythmFilter</title>
 <style>
 :root {
-  --bg-deep: #0a0a12;
-  --bg-dark: #10101a;
-  --bg-card: #161622;
-  --bg-card-hover: #1e1e30;
-  --border: #2a2a3a;
-  --border-light: #3a3a50;
-  --text: #c8c8d8;
-  --text-dim: #6a6a80;
-  --text-bright: #f0f0ff;
-  --accent: #6ecfcf;
-  --accent-dim: #4a9f9f;
-  --accent-glow: rgba(110,207,207,0.3);
+  --bg-deep: #07070d;
+  --bg-dark: #0c0c14;
+  --bg-card: #111119;
+  --bg-card-hover: #191922;
+  --border: #2a2418;
+  --border-light: #3d3425;
+  --text: #c8bfa8;
+  --text-dim: #7a6f58;
+  --text-bright: #f5edd8;
+  --accent: #f0c040;
+  --accent-dim: #b08a20;
+  --accent-glow: rgba(240,192,64,0.25);
+  --gold: #ffd700;
+  --gold-dark: #b8860b;
+  --gold-light: #ffe566;
   --green: #4caf50;
   --green-bright: #66ff66;
   --green-dim: #1a3a1a;
@@ -40,6 +43,10 @@ body {
   font-family: -apple-system, 'SF Mono', 'Fira Code',
     'Courier New', monospace;
   background: var(--bg-deep);
+  background-image: radial-gradient(
+    ellipse at 50% -20%,
+    rgba(255,215,0,0.04) 0%,
+    transparent 60%);
   color: var(--text);
   min-height: 100vh;
   padding: 0.75rem;
@@ -50,20 +57,39 @@ a { color: var(--accent); text-decoration: none; }
 /* Header */
 .header {
   text-align: center;
-  padding: 1rem 0 0.5rem;
+  padding: 1.2rem 0 0.6rem;
   position: relative;
 }
 .header h1 {
-  font-size: 1.6rem;
+  font-size: 1.8rem;
   font-weight: 700;
-  color: var(--accent);
-  letter-spacing: 2px;
+  letter-spacing: 3px;
   text-transform: uppercase;
+  background: linear-gradient(
+    90deg, #b8860b, #ffd700, #ffe566,
+    #ffd700, #b8860b, #ffd700);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: goldShimmer 4s linear infinite;
+}
+@keyframes goldShimmer {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+.gold-line {
+  width: 60px;
+  height: 2px;
+  margin: 0.4rem auto;
+  background: linear-gradient(90deg,
+    transparent, var(--gold, #ffd700), transparent);
+  border-radius: 1px;
 }
 .header .subtitle {
   font-size: 0.75rem;
   color: var(--text-dim);
-  margin-top: 0.25rem;
+  margin-top: 0.3rem;
 }
 .status-dot {
   display: inline-block;
@@ -92,6 +118,11 @@ a { color: var(--accent); text-decoration: none; }
   border-radius: 10px;
   padding: 1rem;
   margin-bottom: 0.75rem;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.card:hover {
+  border-color: var(--border-light);
+  box-shadow: 0 0 15px rgba(255,215,0,0.05);
 }
 .card-header {
   display: flex;
@@ -203,6 +234,11 @@ a { color: var(--accent); text-decoration: none; }
   border-radius: 8px;
   padding: 0.6rem 0.5rem;
   text-align: center;
+  transition: transform 0.2s, border-color 0.3s;
+}
+.stat-box:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-light);
 }
 .stat-val {
   font-size: 1.1rem;
@@ -563,7 +599,7 @@ a { color: var(--accent); text-decoration: none; }
 }
 .kelly-bar-fill.blue {
   background: linear-gradient(90deg,
-    #2196f3, #64b5f6);
+    #8a8a9a, #c0c0d0);
 }
 .kelly-bar-fill.teal {
   background: linear-gradient(90deg,
@@ -676,6 +712,7 @@ a { color: var(--accent); text-decoration: none; }
 <!-- Header -->
 <div class="header">
   <h1>RhythmFilter</h1>
+  <div class="gold-line"></div>
   <div class="subtitle">
     <span class="status-dot" id="syncDot"></span>
     <span id="syncLabel">Loading...</span>
@@ -731,10 +768,10 @@ a { color: var(--accent); text-decoration: none; }
       <div class="gauge-container" id="gaugeWrap">
         <svg viewBox="0 0 120 120">
           <circle cx="60" cy="60" r="50"
-            fill="none" stroke="#2a2a3a"
+            fill="none" stroke="#2a2418"
             stroke-width="8"/>
           <circle cx="60" cy="60" r="50"
-            fill="none" stroke="#6ecfcf"
+            fill="none" stroke="#f0c040"
             stroke-width="8"
             stroke-dasharray="314"
             stroke-dashoffset="157"
@@ -1144,7 +1181,7 @@ function renderStatus() {
   arc.setAttribute('stroke-dashoffset', offset);
 
   // Color: green if >0, red if <-5, yellow armed
-  var col = '#6a6a80';
+  var col = '#7a6f58';
   if (score > 0) col = '#4caf50';
   else if (score < -5) col = '#ef5350';
   else if (score < 0) col = '#ffb74d';
