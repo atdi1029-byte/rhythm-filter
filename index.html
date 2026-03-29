@@ -445,6 +445,57 @@ a { color: var(--accent); text-decoration: none; }
   0%,100% { opacity: 1; }
   50% { opacity: 0.6; }
 }
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
+}
+.live-card {
+  background: var(--bg-dark);
+  border: 1px solid var(--green-dim);
+  border-left: 3px solid var(--green);
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+.live-card .lc-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+.live-card .lc-sym {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--text-bright);
+}
+.live-card .lc-live {
+  font-size: 0.55rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 700;
+  background: var(--green-dim);
+  color: var(--green-bright);
+  animation: livePulse 2s infinite;
+}
+.live-card .lc-pnl {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+}
+.live-card .lc-stats {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.15rem;
+}
+@media (max-width: 480px) {
+  .live-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
 .coin-card .cc-stats {
   font-size: 0.65rem;
   color: var(--text-dim);
@@ -913,6 +964,15 @@ a { color: var(--accent); text-decoration: none; }
   </div>
 </div>
 
+<!-- Live Performance -->
+<div class="card" id="liveCard" style="display:none">
+  <div class="card-header">
+    Live Performance
+    <span class="badge" id="liveBadge">0</span>
+  </div>
+  <div class="card-body" id="liveBody"></div>
+</div>
+
 <!-- Kelly Edge Optimizer -->
 <div class="card" id="kellyCard">
   <div class="card-header">
@@ -1219,6 +1279,7 @@ function fetchCoinStats() {
           CACHE_KEY, JSON.stringify(cache));
       } catch(e) {}
       renderCoinRoster();
+      renderLivePerformance();
       renderKelly();
     }
   );
@@ -1435,14 +1496,8 @@ function renderCoinRoster() {
     h += '<span class="cc-sym">'
       + iconHtml(sym.toLowerCase(), icon)
       + ' ' + esc(sym) + '</span>';
-    var hasLive = (c.Live_Trades || 0) > 0;
-    if (hasLive) {
-      h += '<span class="cc-status live">'
-        + 'LIVE</span>';
-    } else {
-      h += '<span class="cc-status ' + status + '">'
-        + status + '</span>';
-    }
+    h += '<span class="cc-status ' + status + '">'
+      + status + '</span>';
     h += '</div>';
     h += '<div class="cc-stats">';
     h += '<span>WR: '
@@ -1475,6 +1530,67 @@ function renderCoinRoster() {
     h += '</div></div>';
   }
   grid.innerHTML = h;
+}
+
+// === LIVE PERFORMANCE ===
+function renderLivePerformance() {
+  var card = document.getElementById('liveCard');
+  var body = document.getElementById('liveBody');
+  var badge = document.getElementById('liveBadge');
+  if (!coinStats || coinStats.length === 0) return;
+
+  var live = coinStats.filter(function(c) {
+    return (Number(c.Live_Trades) || 0) > 0;
+  });
+
+  if (live.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+
+  card.style.display = '';
+  badge.textContent = live.length;
+
+  // Sort by live P&L descending
+  live.sort(function(a, b) {
+    return (Number(b.Live_PnL) || 0)
+      - (Number(a.Live_PnL) || 0);
+  });
+
+  var h = '<div class="live-grid">';
+  for (var i = 0; i < live.length; i++) {
+    var c = live[i];
+    var sym = (c.Coin || '').replace('usdt', '')
+      .toUpperCase();
+    var icon = coinIconUrl(sym.toLowerCase());
+    var lt = Number(c.Live_Trades) || 0;
+    var lw = Number(c.Live_Wins) || 0;
+    var lp = Number(c.Live_PnL) || 0;
+    var lwr = Number(c.Live_WR) || 0;
+    var lavg = lt > 0 ? (lp / lt) : 0;
+
+    h += '<div class="live-card">';
+    h += '<div class="lc-top">';
+    h += '<span class="lc-sym">'
+      + iconHtml(sym.toLowerCase(), icon)
+      + ' ' + esc(sym) + '</span>';
+    h += '<span class="lc-live">LIVE</span>';
+    h += '</div>';
+    h += '<div class="lc-pnl '
+      + (lp >= 0 ? 'pnl-pos' : 'pnl-neg') + '">'
+      + (lp >= 0 ? '+' : '') + lp.toFixed(2)
+      + '%</div>';
+    h += '<div class="lc-stats">';
+    h += '<span>WR: ' + lwr.toFixed(0) + '%</span>';
+    h += '<span>Trades: ' + lt + '</span>';
+    h += '<span>Wins: ' + lw + '</span>';
+    h += '<span>Avg: '
+      + (lavg >= 0 ? '+' : '')
+      + lavg.toFixed(3) + '%</span>';
+    h += '</div></div>';
+  }
+  h += '</div>';
+  body.innerHTML = h;
 }
 
 // === KELLY EDGE OPTIMIZER ===
