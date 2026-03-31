@@ -6,6 +6,7 @@
  *   TradeLog   — append-only trade history (row per trade)
  *   CoinStats  — per-coin running stats
  *   PnlHistory — daily P&L snapshots for chart
+ *   Commands   — command queue (dashboard → bot)
  *
  * All endpoints use GET + JSONP for mobile safety.
  */
@@ -42,6 +43,12 @@ function doGet(e) {
       result = getLatestSignal_();
     } else if (action === 'ack_signal') {
       result = ackSignal_(e.parameter.id);
+    } else if (action === 'queue_command') {
+      result = queueCommand_(e.parameter);
+    } else if (action === 'get_commands') {
+      result = getPendingCommands_();
+    } else if (action === 'ack_command') {
+      result = ackCommand_(e.parameter);
     }
   } catch (err) {
     result = { status: 'error', message: err.toString() };
@@ -56,13 +63,31 @@ function doGet(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// === WEBHOOK RECEIVER (TradingView POST) ===
+// === POST RECEIVER (bot actions + TradingView webhook) ===
 
 function doPost(e) {
   try {
     var body = e.postData.contents;
-    var signal = JSON.parse(body);
+    var payload = JSON.parse(body);
 
+    // Bot operations have an "action" field
+    if (payload.action) {
+      var action = payload.action.toLowerCase();
+      var result = { status: 'error', message: 'Unknown action' };
+
+      if (action === 'save_state') {
+        result = saveState_(JSON.stringify(payload.data));
+      } else if (action === 'log_trade') {
+        result = logTrade_(JSON.stringify(payload.data));
+      }
+
+      return ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // No action field = TradingView webhook
+    var signal = payload;
     var sheet = getOrCreateSheet_('Signals');
     if (sheet.getLastRow() === 0) {
       sheet.getRange(1, 1, 1, 6).setValues([[
@@ -393,22 +418,79 @@ function snapshotPnl_(params) {
 }
 
 function getPnlHistory_() {
-  var sheet = getOrCreateSheet_('PnlHistory');
-  if (sheet.getLastRow() <= 1) {
+  // Build daily cumulative P&L from TradeLog
+  var tradeSheet = getOrCreateSheet_('TradeLog');
+  if (tradeSheet.getLastRow() <= 1) {
     return { status: 'success', data: [] };
   }
 
-  var data = sheet.getRange(2, 1,
-    sheet.getLastRow() - 1, 4).getValues();
+  var data = tradeSheet.getDataRange().getValues();
+
+  // Group trades by date
+  var dailyMap = {};
+  for (var i = 1; i < data.length; i++) {
+    var ts = data[i][0]; // Timestamp
+    var pnlPct = Number(data[i][4]) || 0; // PnL%
+
+    var dateStr;
+    if (ts instanceof Date) {
+      dateStr = Utilities.formatDate(
+        ts, 'America/New_York', 'yyyy-MM-dd');
+    } else {
+      dateStr = String(ts).substring(0, 10);
+    }
+
+    if (!dailyMap[dateStr]) {
+      dailyMap[dateStr] = { pnl: 0, trades: 0, wins: 0 };
+    }
+    dailyMap[dateStr].pnl += pnlPct;
+    dailyMap[dateStr].trades += 1;
+    if (pnlPct > 0) dailyMap[dateStr].wins += 1;
+  }
+
+  var dates = Object.keys(dailyMap).sort();
+  if (dates.length === 0) {
+    return { status: 'success', data: [] };
+  }
+
+  // Fill every day from first trade to today
   var result = [];
-  for (var i = 0; i < data.length; i++) {
+  var cumPnl = 0;
+  var cumTrades = 0;
+  var cumWins = 0;
+
+  var sp = dates[0].split('-');
+  var start = new Date(
+    parseInt(sp[0]), parseInt(sp[1]) - 1,
+    parseInt(sp[2]), 12, 0, 0);
+  var todayStr = Utilities.formatDate(
+    new Date(), 'America/New_York', 'yyyy-MM-dd');
+  var ep = todayStr.split('-');
+  var end = new Date(
+    parseInt(ep[0]), parseInt(ep[1]) - 1,
+    parseInt(ep[2]), 12, 0, 0);
+
+  for (var d = new Date(start); d <= end;
+    d.setDate(d.getDate() + 1)) {
+    var ds = Utilities.formatDate(
+      d, 'America/New_York', 'yyyy-MM-dd');
+
+    if (dailyMap[ds]) {
+      cumPnl += dailyMap[ds].pnl;
+      cumTrades += dailyMap[ds].trades;
+      cumWins += dailyMap[ds].wins;
+    }
+
     result.push({
-      date: data[i][0],
-      pnl: data[i][1],
-      trades: data[i][2],
-      wr: data[i][3]
+      date: ds,
+      pnl: Math.round(cumPnl * 10000) / 10000,
+      trades: cumTrades,
+      wr: cumTrades > 0
+        ? Math.round(cumWins / cumTrades * 1000) / 10
+        : 0
     });
   }
+
   return { status: 'success', data: result };
 }
 
@@ -449,6 +531,69 @@ function ackSignal_(rowId) {
     return { status: 'error', message: 'Invalid row' };
   }
   sheet.getRange(row, 6).setValue('yes');
+  return { status: 'success' };
+}
+
+
+// === COMMAND QUEUE (Dashboard → Bot) ===
+
+function queueCommand_(params) {
+  var cmd = params.cmd || '';
+  if (!cmd) return { status: 'error', message: 'No cmd' };
+
+  var sheet = getOrCreateSheet_('Commands');
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 5).setValues([[
+      'Timestamp', 'Command', 'Params', 'Status', 'Result'
+    ]]);
+  }
+
+  sheet.appendRow([
+    new Date().toISOString(),
+    cmd,
+    params.params || '',
+    'pending',
+    ''
+  ]);
+
+  return { status: 'success', message: 'Command queued: ' + cmd };
+}
+
+function getPendingCommands_() {
+  var sheet = getOrCreateSheet_('Commands');
+  if (sheet.getLastRow() <= 1) {
+    return { status: 'success', commands: [] };
+  }
+
+  var data = sheet.getDataRange().getValues();
+  var commands = [];
+
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][3] === 'pending') {
+      commands.push({
+        row: i + 1,
+        timestamp: data[i][0],
+        command: data[i][1],
+        params: data[i][2]
+      });
+    }
+  }
+
+  return { status: 'success', commands: commands };
+}
+
+function ackCommand_(params) {
+  var row = parseInt(params.row);
+  var result = params.result || 'done';
+  if (!row) return { status: 'error', message: 'No row' };
+
+  var sheet = getOrCreateSheet_('Commands');
+  if (row < 2 || row > sheet.getLastRow()) {
+    return { status: 'error', message: 'Invalid row' };
+  }
+
+  sheet.getRange(row, 4).setValue('done');
+  sheet.getRange(row, 5).setValue(result);
   return { status: 'success' };
 }
 

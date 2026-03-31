@@ -731,6 +731,105 @@ a { color: var(--accent); text-decoration: none; }
   border-color: var(--accent);
 }
 
+/* Close buttons */
+.btn-close-green {
+  display: block;
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.65rem 1rem;
+  background: linear-gradient(135deg,
+    var(--green-dim), #1a4a1a);
+  border: 1px solid var(--green);
+  border-radius: 6px;
+  color: var(--green-bright);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-close-green:hover {
+  background: linear-gradient(135deg,
+    #1a4a1a, #226a22);
+  box-shadow: 0 0 15px rgba(76,175,80,0.3);
+}
+.btn-close-green:active {
+  transform: scale(0.98);
+}
+.btn-close-green:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn-close-one {
+  padding: 0.2rem 0.4rem;
+  font-size: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn-close-one:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* Confirm dialog overlay */
+.confirm-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.confirm-box {
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 1.5rem;
+  max-width: 320px;
+  text-align: center;
+}
+.confirm-box h3 {
+  color: var(--text-bright);
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+.confirm-box p {
+  color: var(--text);
+  font-size: 0.8rem;
+  margin-bottom: 1rem;
+}
+.confirm-box .btn-row {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+.confirm-box button {
+  padding: 0.5rem 1.2rem;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+.confirm-box .btn-yes {
+  background: var(--green-dim);
+  color: var(--green-bright);
+  border-color: var(--green);
+}
+.confirm-box .btn-no {
+  background: transparent;
+  color: var(--text-dim);
+}
+
 /* Toast */
 .toast {
   position: fixed;
@@ -1007,6 +1106,23 @@ a { color: var(--accent); text-decoration: none; }
   <div class="card-body" id="sigBody">
     <div class="empty-state">
       No signals yet</div>
+  </div>
+</div>
+
+<!-- Confirm Dialog -->
+<div class="confirm-overlay" id="confirmOverlay"
+  style="display:none">
+  <div class="confirm-box">
+    <h3 id="confirmTitle">Close All Green?</h3>
+    <p id="confirmMsg">
+      This will close all profitable positions.
+    </p>
+    <div class="btn-row">
+      <button class="btn-yes"
+        id="confirmYes">Close Them</button>
+      <button class="btn-no"
+        onclick="hideConfirm()">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -1327,8 +1443,10 @@ function renderPositions() {
 
   var h = '<table class="pos-table">';
   h += '<tr><th>Coin</th><th>Entry</th>'
-    + '<th>SL</th><th>TP</th><th>Time</th></tr>';
+    + '<th>SL</th><th>TP</th>'
+    + '<th>Time</th><th></th></tr>';
 
+  var hasGreen = false;
   for (var i = 0; i < pos.length; i++) {
     var p = pos[i];
     var sym = (p.symbol || '').replace('USDT','');
@@ -1336,6 +1454,7 @@ function renderPositions() {
     var t = p.entry_time
       ? new Date(p.entry_time)
         .toLocaleDateString() : '';
+    var pid = p.position_id || '';
 
     h += '<tr>';
     h += '<td>' + iconHtml(sym, icon)
@@ -1347,9 +1466,28 @@ function renderPositions() {
       + fmt(p.tp_price) + '</td>';
     h += '<td style="color:var(--text-dim)">'
       + t + '</td>';
+    h += '<td>';
+    if (pid) {
+      h += '<button class="btn-close-one" '
+        + 'onclick="confirmCloseOne(\''
+        + esc(pid) + '\',\''
+        + esc(sym) + '\')"'
+        + ' title="Close this position">'
+        + 'X</button>';
+    }
+    h += '</td>';
     h += '</tr>';
   }
   h += '</table>';
+
+  // Close All Green button
+  if (pos.length > 0) {
+    h += '<button class="btn-close-green" '
+      + 'id="btnCloseGreen" '
+      + 'onclick="confirmCloseAllGreen()">'
+      + 'Close All Green</button>';
+  }
+
   body.innerHTML = h;
 }
 
@@ -1890,6 +2028,91 @@ function sortRoster(s, btn) {
   });
   btn.classList.add('active');
   renderCoinRoster();
+}
+
+// === COMMAND QUEUE (Close All Green) ===
+function queueCommand(cmd, params) {
+  if (!APPS_SCRIPT_URL) {
+    showToast('No sync URL configured');
+    return;
+  }
+  var url = APPS_SCRIPT_URL
+    + '?action=queue_command'
+    + '&cmd=' + encodeURIComponent(cmd);
+  if (params) {
+    url += '&params=' + encodeURIComponent(params);
+  }
+  jsonpFetch(url, function(err, data) {
+    if (err || !data ||
+      data.status !== 'success') {
+      showToast('Command failed — try again');
+      return;
+    }
+    showToast('Command queued — bot will '
+      + 'execute in ~30 seconds');
+  });
+}
+
+function confirmCloseAllGreen() {
+  var overlay = document
+    .getElementById('confirmOverlay');
+  var title = document
+    .getElementById('confirmTitle');
+  var msg = document
+    .getElementById('confirmMsg');
+  var btn = document
+    .getElementById('confirmYes');
+
+  var n = botState && botState.open_positions
+    ? botState.open_positions.length : 0;
+  title.textContent = 'Close All Green?';
+  msg.textContent = 'This will close all '
+    + n + ' open positions that are in profit. '
+    + 'Bot executes in ~30 seconds.';
+  btn.textContent = 'Close Them';
+  btn.onclick = function() {
+    queueCommand('close_all_green');
+    hideConfirm();
+    var b = document
+      .getElementById('btnCloseGreen');
+    if (b) {
+      b.disabled = true;
+      b.textContent = 'Command Queued...';
+      setTimeout(function() {
+        b.disabled = false;
+        b.textContent = 'Close All Green';
+      }, 35000);
+    }
+  };
+  overlay.style.display = 'flex';
+}
+
+function confirmCloseOne(pid, sym) {
+  var overlay = document
+    .getElementById('confirmOverlay');
+  var title = document
+    .getElementById('confirmTitle');
+  var msg = document
+    .getElementById('confirmMsg');
+  var btn = document
+    .getElementById('confirmYes');
+
+  title.textContent = 'Close ' + sym + '?';
+  msg.textContent = 'This will close your '
+    + sym + ' position. '
+    + 'Bot executes in ~30 seconds.';
+  btn.textContent = 'Close ' + sym;
+  btn.onclick = function() {
+    queueCommand('close_position', pid);
+    hideConfirm();
+    showToast(sym + ' close queued');
+  };
+  overlay.style.display = 'flex';
+}
+
+function hideConfirm() {
+  document.getElementById('confirmOverlay')
+    .style.display = 'none';
 }
 
 // === P&L CHART ===

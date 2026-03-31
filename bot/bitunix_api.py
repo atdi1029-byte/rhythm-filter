@@ -6,6 +6,7 @@ Docs: https://www.bitunix.com/api-docs/futures/
 
 import hashlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -13,6 +14,9 @@ import uuid
 import requests
 
 BASE_URL = "https://fapi.bitunix.com"
+RETRY_DELAYS = [2, 4, 8]
+
+log = logging.getLogger("rhythm_bot")
 
 
 class BitunixClient:
@@ -20,6 +24,24 @@ class BitunixClient:
         self.api_key = api_key or os.environ.get("BITUNIX_API_KEY", "")
         self.secret_key = secret_key or os.environ.get("BITUNIX_API_SECRET", "")
         self.session = requests.Session()
+
+    def _retry(self, fn, max_retries=3):
+        """Retry a request with exponential backoff."""
+        for attempt in range(max_retries + 1):
+            try:
+                return fn()
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout) as e:
+                if attempt >= max_retries:
+                    raise
+                delay = RETRY_DELAYS[min(
+                    attempt, len(RETRY_DELAYS) - 1)]
+                log.warning(
+                    f"Bitunix request failed "
+                    f"(attempt {attempt + 1}/{max_retries})"
+                    f", retry in {delay}s: {e}")
+                time.sleep(delay)
+                self.session = requests.Session()
 
     def _sha256(self, s):
         return hashlib.sha256(s.encode("utf-8")).hexdigest()
@@ -46,45 +68,60 @@ class BitunixClient:
         }
 
     def _get(self, path, params=None):
-        """Authenticated GET request."""
-        query_str = ""
-        if params:
-            # Sort by key, remove spaces
-            sorted_params = sorted(params.items())
-            query_str = "".join(f"{k}{v}" for k, v in sorted_params)
-
-        headers = self._sign(query_params=query_str)
-        url = BASE_URL + path
-        r = self.session.get(url, params=params, headers=headers, timeout=30)
-        return r.json()
+        """Authenticated GET request with retry."""
+        def do_request():
+            query_str = ""
+            if params:
+                sorted_params = sorted(params.items())
+                query_str = "".join(
+                    f"{k}{v}" for k, v in sorted_params)
+            headers = self._sign(query_params=query_str)
+            url = BASE_URL + path
+            r = self.session.get(
+                url, params=params,
+                headers=headers, timeout=30)
+            return r.json()
+        return self._retry(do_request)
 
     def _post(self, path, data=None):
-        """Authenticated POST request."""
-        body = json.dumps(data, separators=(",", ":")) if data else ""
-        headers = self._sign(body=body)
-        url = BASE_URL + path
-        r = self.session.post(url, data=body, headers=headers, timeout=30)
-        return r.json()
+        """Authenticated POST request with retry."""
+        def do_request():
+            body = json.dumps(
+                data, separators=(",", ":")) if data else ""
+            headers = self._sign(body=body)
+            url = BASE_URL + path
+            r = self.session.post(
+                url, data=body,
+                headers=headers, timeout=30)
+            return r.json()
+        return self._retry(do_request)
 
     # === MARKET DATA (public, no auth needed) ===
 
     def get_tickers(self, symbols=None):
         """Get current prices for trading pairs."""
-        params = {}
-        if symbols:
-            params["symbols"] = ",".join(symbols)
-        url = BASE_URL + "/api/v1/futures/market/tickers"
-        r = self.session.get(url, params=params, timeout=30)
-        return r.json()
+        def do_request():
+            params = {}
+            if symbols:
+                params["symbols"] = ",".join(symbols)
+            url = BASE_URL + "/api/v1/futures/market/tickers"
+            r = self.session.get(
+                url, params=params, timeout=30)
+            return r.json()
+        return self._retry(do_request)
 
     def get_trading_pairs(self, symbols=None):
-        """Get available trading pairs with min sizes, leverage, etc."""
-        params = {}
-        if symbols:
-            params["symbols"] = ",".join(symbols)
-        url = BASE_URL + "/api/v1/futures/market/trading_pairs"
-        r = self.session.get(url, params=params, timeout=30)
-        return r.json()
+        """Get available trading pairs."""
+        def do_request():
+            params = {}
+            if symbols:
+                params["symbols"] = ",".join(symbols)
+            url = (BASE_URL
+                   + "/api/v1/futures/market/trading_pairs")
+            r = self.session.get(
+                url, params=params, timeout=30)
+            return r.json()
+        return self._retry(do_request)
 
     # === ACCOUNT ===
 
