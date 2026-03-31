@@ -559,6 +559,19 @@ def check_position_exits(state, client, live=False):
         # don't have them yet
         assign_position_ids(state, live_positions)
 
+        # Update unrealized PnL from Bitunix
+        live_pnl_map = {}
+        for lp in live_positions:
+            pid = lp.get("positionId")
+            if pid:
+                live_pnl_map[pid] = float(
+                    lp.get("unrealizedPNL", 0))
+        for pos in state["open_positions"]:
+            pid = pos.get("position_id")
+            if pid and pid in live_pnl_map:
+                pos["unrealized_pnl"] = (
+                    live_pnl_map[pid])
+
         # Build set of live positionIds
         live_ids = set()
         for lp in live_positions:

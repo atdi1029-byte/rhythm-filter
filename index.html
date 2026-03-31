@@ -1443,10 +1443,10 @@ function renderPositions() {
 
   var h = '<table class="pos-table">';
   h += '<tr><th>Coin</th><th>Entry</th>'
-    + '<th>SL</th><th>TP</th>'
+    + '<th>P&L</th>'
     + '<th>Time</th><th></th></tr>';
 
-  var hasGreen = false;
+  var greenCount = 0;
   for (var i = 0; i < pos.length; i++) {
     var p = pos[i];
     var sym = (p.symbol || '').replace('USDT','');
@@ -1455,15 +1455,28 @@ function renderPositions() {
       ? new Date(p.entry_time)
         .toLocaleDateString() : '';
     var pid = p.position_id || '';
+    var upnl = p.unrealized_pnl;
+    var hasPnl = typeof upnl === 'number';
+    var isGreen = hasPnl && upnl > 0;
+    if (isGreen) greenCount++;
 
     h += '<tr>';
     h += '<td>' + iconHtml(sym, icon)
       + ' <b>' + esc(sym) + '</b></td>';
     h += '<td>' + fmt(p.entry_price) + '</td>';
-    h += '<td class="pnl-neg">'
-      + fmt(p.sl_price) + '</td>';
-    h += '<td class="pnl-pos">'
-      + fmt(p.tp_price) + '</td>';
+
+    // Unrealized P&L column
+    if (hasPnl) {
+      var pnlCls = isGreen
+        ? 'pnl-pos' : 'pnl-neg';
+      h += '<td class="' + pnlCls + '">'
+        + (upnl >= 0 ? '+' : '')
+        + '$' + upnl.toFixed(4) + '</td>';
+    } else {
+      h += '<td style="color:var(--text-dim)">'
+        + '--</td>';
+    }
+
     h += '<td style="color:var(--text-dim)">'
       + t + '</td>';
     h += '<td>';
@@ -1480,12 +1493,13 @@ function renderPositions() {
   }
   h += '</table>';
 
-  // Close All Green button
-  if (pos.length > 0) {
+  // Close All Green button — only when green exists
+  if (greenCount > 0) {
     h += '<button class="btn-close-green" '
       + 'id="btnCloseGreen" '
       + 'onclick="confirmCloseAllGreen()">'
-      + 'Close All Green</button>';
+      + 'Close All Green (' + greenCount
+      + ')</button>';
   }
 
   body.innerHTML = h;
