@@ -711,6 +711,25 @@ a { color: var(--accent); text-decoration: none; }
   color: var(--accent);
   border-color: var(--accent);
 }
+.chart-mode-bar {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+.chart-mode-bar button {
+  padding: 0.15rem 0.45rem;
+  font-size: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+}
+.chart-mode-bar button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 
 /* Toast */
 .toast {
@@ -815,9 +834,20 @@ a { color: var(--accent); text-decoration: none; }
 <div class="card" id="pnlChartCard">
   <div class="card-header">
     P&L Chart
-    <span class="toggle"
-      onclick="toggleCard('pnlChartCard')">
-      collapse</span>
+    <span style="display:flex;align-items:center;
+      gap:0.5rem">
+      <span class="chart-mode-bar" id="chartMode">
+        <button class="active"
+          onclick="setChartMode('pct',this)">
+          %</button>
+        <button
+          onclick="setChartMode('usd',this)">
+          $</button>
+      </span>
+      <span class="toggle"
+        onclick="toggleCard('pnlChartCard')">
+        collapse</span>
+    </span>
   </div>
   <div class="card-body">
     <div class="chart-range-bar" id="chartRange">
@@ -989,6 +1019,7 @@ var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyVRrk_TFiTZpbqy9
 var CACHE_KEY = 'rf_dashboard_cache';
 var LEVEL_KEY = 'rf_pokemon_level';
 var REFRESH_MS = 30000;
+var TRADE_SIZE = 5; // $ per coin position (adjust to match --per-coin)
 
 // === STATE ===
 var botState = null;
@@ -1864,6 +1895,7 @@ function sortRoster(s, btn) {
 // === P&L CHART ===
 var pnlHistory = [];
 var chartRange = 'all';
+var chartMode = 'pct'; // 'pct' or 'usd'
 
 function fetchPnlHistory() {
   if (!APPS_SCRIPT_URL) {
@@ -1909,11 +1941,31 @@ function setChartRange(range, btn) {
   drawPnlChart();
 }
 
+function setChartMode(mode, btn) {
+  chartMode = mode;
+  var btns = document
+    .querySelectorAll('#chartMode button');
+  btns.forEach(function(b) {
+    b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  drawPnlChart();
+}
+
+function fmtChartVal(v) {
+  if (chartMode === 'usd') {
+    return (v >= 0 ? '+$' : '-$')
+      + Math.abs(v).toFixed(2);
+  }
+  return (v >= 0 ? '+' : '')
+    + v.toFixed(1) + '%';
+}
+
 function drawPnlChart() {
   var wrap = document.getElementById('pnlChartWrap');
 
-  // Fallback: if no history but botState has trades,
-  // create a single-point entry so chart isn't empty
+  // Fallback: if no history but botState has
+  // trades, create a single-point entry
   if ((!pnlHistory || pnlHistory.length === 0)
     && botState && botState.total_trades > 0) {
     var today = new Date().toISOString()
@@ -1922,7 +1974,8 @@ function drawPnlChart() {
       date: today,
       pnl: botState.total_pnl || 0,
       trades: botState.total_trades || 0,
-      wr: botState.total_wins && botState.total_trades
+      wr: botState.total_wins
+        && botState.total_trades
         ? (botState.total_wins
           / botState.total_trades * 100) : 0
     }];
@@ -1955,11 +2008,14 @@ function drawPnlChart() {
     return;
   }
 
-  // Build arrays
+  // Build arrays — convert to $ if usd mode
+  var isUsd = chartMode === 'usd';
   var cumPnl = [];
   var labels = [];
   for (var i = 0; i < entries.length; i++) {
-    cumPnl.push(Number(entries[i].pnl) || 0);
+    var raw = Number(entries[i].pnl) || 0;
+    cumPnl.push(isUsd
+      ? raw * TRADE_SIZE / 100 : raw);
     var d = new Date(entries[i].date);
     labels.push(
       (d.getMonth()+1) + '/' + d.getDate());
@@ -1980,7 +2036,7 @@ function drawPnlChart() {
 
   var W = rect.width;
   var H = rect.height;
-  var pad = { t: 20, r: 15, b: 25, l: 50 };
+  var pad = { t: 20, r: 15, b: 25, l: 55 };
   var cw = W - pad.l - pad.r;
   var ch = H - pad.t - pad.b;
 
@@ -2069,8 +2125,7 @@ function drawPnlChart() {
       * (1 - s / steps);
     var y = pad.t + (s / steps) * ch;
     ctx.fillText(
-      (val >= 0 ? '+' : '') + val.toFixed(1) + '%',
-      pad.l - 5, y + 3);
+      fmtChartVal(val), pad.l - 5, y + 3);
   }
 
   // X axis labels
@@ -2091,8 +2146,7 @@ function drawPnlChart() {
   ctx.font = 'bold 12px monospace';
   ctx.textAlign = 'left';
   ctx.fillText(
-    (lastPnl >= 0 ? '+' : '')
-    + lastPnl.toFixed(2) + '%'
+    fmtChartVal(lastPnl)
     + '  (' + entries.length + ' days)',
     pad.l, pad.t - 5);
 }
