@@ -2133,6 +2133,7 @@ function hideConfirm() {
 var pnlHistory = [];
 var chartRange = 'all';
 var chartMode = 'pct'; // 'pct' or 'usd'
+var chartData = null; // stored for crosshair
 
 function fetchPnlHistory() {
   if (!APPS_SCRIPT_URL) {
@@ -2386,6 +2387,113 @@ function drawPnlChart() {
     fmtChartVal(lastPnl)
     + '  (' + entries.length + ' days)',
     pad.l, pad.t - 5);
+
+  // Store for crosshair
+  chartData = {
+    canvas: canvas, ctx: ctx,
+    cumPnl: cumPnl, labels: labels,
+    entries: entries,
+    pad: pad, W: W, H: H,
+    cw: cw, ch: ch,
+    minV: minV, maxV: maxV,
+    dpr: dpr, isUp: isUp
+  };
+
+  // Bind crosshair events
+  canvas.onmousemove = chartCrosshair;
+  canvas.ontouchmove = function(e) {
+    e.preventDefault();
+    chartCrosshair(e.touches[0]);
+  };
+  canvas.onmouseleave = function() {
+    drawPnlChart();
+  };
+  canvas.ontouchend = function() {
+    drawPnlChart();
+  };
+}
+
+function chartCrosshair(e) {
+  if (!chartData) return;
+  var cd = chartData;
+  var rect = cd.canvas.getBoundingClientRect();
+  var mx = e.clientX - rect.left;
+
+  // Find nearest data point
+  var n = cd.cumPnl.length;
+  if (n <= 1) return;
+  var idx = Math.round(
+    (mx - cd.pad.l) / cd.cw * (n - 1));
+  idx = Math.max(0, Math.min(n - 1, idx));
+
+  // Redraw chart then overlay crosshair
+  drawPnlChart();
+  if (!chartData) return;
+  var ctx = chartData.ctx;
+  var dpr = chartData.dpr;
+
+  function xP(i) {
+    if (n <= 1) return cd.pad.l + cd.cw / 2;
+    return cd.pad.l + (i / (n - 1)) * cd.cw;
+  }
+  function yP(v) {
+    return cd.pad.t + (1 - (v - cd.minV)
+      / (cd.maxV - cd.minV)) * cd.ch;
+  }
+
+  var px = xP(idx);
+  var py = yP(cd.cumPnl[idx]);
+  var val = cd.cumPnl[idx];
+
+  // Vertical line
+  ctx.save();
+  ctx.strokeStyle = 'rgba(240,192,64,0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(px, cd.pad.t);
+  ctx.lineTo(px, cd.H - cd.pad.b);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Dot
+  ctx.beginPath();
+  ctx.arc(px, py, 5, 0, Math.PI * 2);
+  ctx.fillStyle = val >= 0
+    ? '#4caf50' : '#ef5350';
+  ctx.fill();
+  ctx.strokeStyle = '#f5edd8';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Tooltip
+  var label = cd.labels[idx]
+    + '  ' + fmtChartVal(val);
+  var entry = cd.entries[idx];
+  if (entry) {
+    label += '  (' + (entry.trades || 0) + ' trades)';
+  }
+  ctx.font = 'bold 11px monospace';
+  var tw = ctx.measureText(label).width + 12;
+  var tx = px - tw / 2;
+  if (tx < cd.pad.l) tx = cd.pad.l;
+  if (tx + tw > cd.W - cd.pad.r)
+    tx = cd.W - cd.pad.r - tw;
+  var ty = py - 22;
+  if (ty < 5) ty = py + 12;
+
+  ctx.fillStyle = 'rgba(17,17,25,0.9)';
+  ctx.strokeStyle = 'rgba(240,192,64,0.6)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(tx, ty, tw, 18, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#f5edd8';
+  ctx.textAlign = 'left';
+  ctx.fillText(label, tx + 6, ty + 13);
+  ctx.restore();
 }
 
 // Redraw on resize

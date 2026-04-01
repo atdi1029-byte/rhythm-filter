@@ -1,4 +1,4 @@
-var CACHE_NAME = 'rhythm-filter-v18';
+var CACHE_NAME = 'rhythm-filter-v19';
 var ASSETS = [
   './',
   './index.html',
