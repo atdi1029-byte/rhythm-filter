@@ -29,11 +29,11 @@ from bitunix_api import BitunixClient
 
 # === SETTINGS ===
 LEVERAGE = 1
-POSITION_USD = 3.0        # $ per short position
+POSITION_USD = 1.0        # $ per short position
 MAX_SHORTS_PER_COIN = 3
 POLL_INTERVAL = 300        # check every 5 min (one candle)
 SIGNAL_COOLDOWN = 300      # 5 min between signal checks
-WARMUP_PAGES = 6           # ~40 days of warmup data
+WARMUP_PAGES = 15          # ~26 days of warmup data
 
 # Breathing score params
 RSI_LEN = 14
@@ -41,7 +41,7 @@ BUY_ZONE = 40.0
 SELL_ZONE = 60.0
 EMA_LEN = 9
 TOTAL_COINS = 40
-SHORT_THRESHOLD = -5.0
+SHORT_THRESHOLD = -3.0     # lowered from -5: CC data runs ~2pt higher than TV
 SHORT_COOLDOWN_BARS = 12
 
 # 40 coins for breathing score
@@ -60,7 +60,6 @@ SCORE_COINS = [
 TRADE_COINS = [
     "APTUSDT", "FETUSDT", "THETAUSDT", "SNXUSDT",
     "GRTUSDT", "OPUSDT", "WIFUSDT", "ENJUSDT",
-    "HBARUSDT",
 ]
 
 BLACKLIST = set()  # none for now
@@ -246,10 +245,7 @@ class BreathingEngine:
         self.raw_scores = []
         self.coin_rsis = {}
 
-        # Signal state
-        self.was_green = False
-        self.short_armed = False
-        self.trough_val = 0.0
+        # Signal state (simplified — no was_green gate)
         self.last_short_bar = -999
         self.n_bars = 0
 
@@ -420,9 +416,9 @@ class BreathingEngine:
             self.raw_scores, EMA_LEN)
 
         # Replay signal state to current bar
-        self.was_green = False
-        self.short_armed = False
-        self.trough_val = 0.0
+        # Simplified: no was_green gate. When score drops below
+        # threshold and bounces, that's a signal. Cooldown
+        # prevents spam. Removes state-drift issues with TV.
         self.last_short_bar = -999
         self._new_signal = False
 
@@ -432,32 +428,18 @@ class BreathingEngine:
             p2 = self.breath_scores[i - 2]
             if s is None or p is None or p2 is None:
                 continue
-            if s > 0:
-                self.was_green = True
-            if s < SHORT_THRESHOLD and self.was_green:
-                self.short_armed = True
-                if s < self.trough_val:
-                    self.trough_val = s
-            if (self.short_armed and s > p and p <= p2
+            if (s < SHORT_THRESHOLD
+                    and s > p and p <= p2
                     and s < 0
                     and (i - self.last_short_bar)
                     >= SHORT_COOLDOWN_BARS):
-                # Signal fires on this bar
-                self.short_armed = False
                 self.last_short_bar = i
-                self.trough_val = 0.0
-                self.was_green = False
-                # Track if this is a NEW bar (not old history)
                 if i >= self._replay_cutoff:
                     self._new_signal = True
                     log.info(
                         f"Signal fired on bar {i} "
                         f"(cutoff={self._replay_cutoff}) "
                         f"score={s:+.1f}")
-            if self.short_armed and s > 0:
-                self.short_armed = False
-                self.trough_val = 0.0
-                self.was_green = False
 
     def _backfill_gaps(self):
         """Detect and fill candle gaps (e.g. after sleep).
@@ -481,26 +463,32 @@ class BreathingEngine:
         log.info(f"Gap detected: {gap_min:.0f} min, "
                  f"backfilling {pages} page(s)...")
 
-        for sym in SCORE_COINS:
+        for idx, sym in enumerate(SCORE_COINS):
             try:
-                candles = fetch_extended(sym, pages)
-                if candles and sym in self.coin_candles:
-                    existing = {
-                        c["time"] for c in
-                        self.coin_candles[sym]}
-                    added = 0
-                    for c in candles:
-                        if c["time"] not in existing:
-                            self.coin_candles[sym].append(c)
-                            existing.add(c["time"])
-                            added += 1
-                    self.coin_candles[sym].sort(
-                        key=lambda x: x["time"])
-                    if added > 0:
-                        log.debug(f"  {sym}: +{added} candles")
+                candles = fetch_candles_cc(
+                    sym, limit=missed, to_ts=None)
+                if candles:
+                    if sym not in self.coin_candles:
+                        self.coin_candles[sym] = candles
+                        log.info(f"  Recovered {sym} "
+                                 f"({len(candles)} bars)")
+                    else:
+                        existing = {
+                            c["time"] for c in
+                            self.coin_candles[sym]}
+                        added = 0
+                        for c in candles:
+                            if c["time"] not in existing:
+                                self.coin_candles[sym].append(c)
+                                existing.add(c["time"])
+                                added += 1
+                        self.coin_candles[sym].sort(
+                            key=lambda x: x["time"])
             except Exception as e:
                 log.debug(f"  Backfill {sym} failed: {e}")
-            time.sleep(0.1)
+            if (idx + 1) % 10 == 0:
+                log.info(f"  Backfill {idx+1}/40...")
+            time.sleep(0.5)
 
         log.info("Backfill complete")
 
@@ -512,6 +500,28 @@ class BreathingEngine:
         # Backfill any gaps from sleep/downtime
         self._backfill_gaps()
 
+        # Recover any missing coins with full warmup
+        missing = [s for s in SCORE_COINS
+                   if s not in self.coin_candles]
+        if missing:
+            log.info(f"Recovering {len(missing)} missing "
+                     f"coins: {', '.join(missing)}")
+            for sym in missing:
+                try:
+                    candles = fetch_extended(
+                        sym, WARMUP_PAGES)
+                    if candles:
+                        self.coin_candles[sym] = candles
+                        log.info(f"  {sym}: recovered "
+                                 f"({len(candles)} bars)")
+                    time.sleep(2)
+                except Exception as e:
+                    log.warning(f"  {sym}: recovery "
+                                f"failed ({e})")
+                    time.sleep(5)
+            if missing:
+                self._save_cache()
+
         # Fetch latest candle for each coin
         for sym in SCORE_COINS:
             try:
@@ -522,6 +532,8 @@ class BreathingEngine:
                         self.coin_candles[sym].append(c)
                     elif c["time"] == last["time"]:
                         self.coin_candles[sym][-1] = c
+                elif c and sym not in self.coin_candles:
+                    self.coin_candles[sym] = [c]
             except Exception as e:
                 log.debug(f"Update {sym} failed: {e}")
             time.sleep(0.05)
@@ -550,17 +562,15 @@ class BreathingEngine:
         if s is None or p is None or p2 is None:
             return False
 
-        # Check signal on latest bar
-        signal = (self.short_armed and s > p and p <= p2
+        # Check signal on latest bar — simplified logic
+        signal = (s < SHORT_THRESHOLD
+                  and s > p and p <= p2
                   and s < 0
                   and (i - self.last_short_bar)
                   >= SHORT_COOLDOWN_BARS)
 
         if signal:
-            self.short_armed = False
             self.last_short_bar = i
-            self.trough_val = 0.0
-            self.was_green = False
             log.info(f"SHORT SIGNAL! Score={s:+.1f} "
                      f"Raw={self.raw_scores[i]:+.1f}")
 
@@ -645,29 +655,213 @@ APPS_SCRIPT_URL = os.environ.get(
     "RHYTHM_APPS_SCRIPT_URL", "")
 
 
+def update_live_pnl(state, client):
+    """Fetch live positions from Bitunix and update
+    unrealized P&L + position IDs on state entries."""
+    try:
+        result = client.get_positions()
+        if result.get("code") != 0:
+            return
+        live = result.get("data", [])
+
+        # Build lookup by symbol
+        live_by_sym = {}
+        for lp in live:
+            sym = lp.get("symbol", "")
+            if sym not in live_by_sym:
+                live_by_sym[sym] = []
+            live_by_sym[sym].append(lp)
+
+        for pos in state["open_positions"]:
+            sym = pos["symbol"]
+            candidates = live_by_sym.get(sym, [])
+            if not candidates:
+                continue
+
+            # Match by closest entry price
+            best = None
+            best_diff = float("inf")
+            for lp in candidates:
+                diff = abs(
+                    float(lp.get("avgOpenPrice", 0))
+                    - pos["entry_price"])
+                if diff < best_diff:
+                    best_diff = diff
+                    best = lp
+
+            if best:
+                pid = best.get("positionId", "")
+                if pid:
+                    pos["position_id"] = pid
+                upnl = float(
+                    best.get("unrealizedPNL", 0))
+                pos["unrealized_pnl"] = upnl
+                # Also store entry_time if missing
+                if "entry_time" not in pos and "time" in pos:
+                    pos["entry_time"] = pos["time"]
+
+        # Remove positions that Bitunix no longer has
+        live_syms_ids = set()
+        for lp in live:
+            live_syms_ids.add(
+                (lp.get("symbol"), lp.get("positionId")))
+
+        kept = []
+        for pos in state["open_positions"]:
+            pid = pos.get("position_id")
+            if pid:
+                if (pos["symbol"], pid) in live_syms_ids:
+                    kept.append(pos)
+                else:
+                    log.info(
+                        f"Position closed: {pos['symbol']}"
+                        f" pid={pid}")
+            else:
+                kept.append(pos)
+        state["open_positions"] = kept
+
+    except Exception as e:
+        log.warning(f"Live PnL update error: {e}")
+
+
 def sync_to_cloud(state, engine=None):
     """Push state to Apps Script for dashboard (GET)."""
     if not APPS_SCRIPT_URL:
         return
     try:
+        # Include entry_time, position_id, unrealized_pnl
+        positions = []
+        for p in state["open_positions"]:
+            positions.append({
+                "symbol": p.get("symbol", ""),
+                "qty": p.get("qty", 0),
+                "entry_price": p.get("entry_price", 0),
+                "entry_time": p.get(
+                    "entry_time", p.get("time", "")),
+                "position_id": p.get("position_id", ""),
+                "unrealized_pnl": p.get(
+                    "unrealized_pnl", None),
+            })
         cloud = {
-            "open_positions": state["open_positions"],
+            "open_positions": positions,
             "total_signals": state["total_signals"],
-            "total_shorts_opened": state["total_shorts_opened"],
+            "total_shorts_opened": state[
+                "total_shorts_opened"],
             "breathing_score": (
                 engine.get_score() if engine else 0),
             "signal_state": (
-                "armed" if (engine and engine.short_armed)
-                else "waiting"),
+                "ready" if engine else "waiting"),
         }
         r = requests.get(APPS_SCRIPT_URL, params={
             "action": "save_state",
-            "data": json.dumps(cloud, separators=(",", ":")),
+            "data": json.dumps(
+                cloud, separators=(",", ":")),
         }, timeout=15)
         if r.status_code == 200:
             log.debug("Synced to cloud")
     except Exception as e:
         log.warning(f"Cloud sync error: {e}")
+
+
+def poll_close_commands(state, client):
+    """Check Apps Script for close commands from dashboard."""
+    if not APPS_SCRIPT_URL:
+        return
+    try:
+        r = requests.get(APPS_SCRIPT_URL, params={
+            "action": "get_commands",
+        }, timeout=10)
+        data = r.json()
+        if data.get("status") != "success":
+            return
+        commands = data.get("commands", [])
+        for cmd in commands:
+            cmd_name = cmd.get("command", "")
+            cmd_row = cmd.get("row")
+            if cmd_name == "close_one":
+                pid = cmd.get("position_id", "")
+                result = close_position_by_id(
+                    client, state, pid)
+                ack_command(cmd_row, result)
+            elif cmd_name == "close_all_green":
+                result = close_all_green(client, state)
+                ack_command(cmd_row, result)
+            elif cmd_row:
+                ack_command(cmd_row, "unknown command")
+    except Exception as e:
+        log.warning(f"Command poll error: {e}")
+
+
+def ack_command(row, result="done"):
+    """Mark a command as completed."""
+    if not APPS_SCRIPT_URL:
+        return
+    try:
+        requests.get(APPS_SCRIPT_URL, params={
+            "action": "ack_command",
+            "row": str(row),
+            "result": result,
+        }, timeout=10)
+    except Exception as e:
+        log.warning(f"Command ack error: {e}")
+
+
+def close_all_green(client, state):
+    """Close all open positions that are in profit."""
+    if not state["open_positions"]:
+        return "No open positions"
+    closed_count = 0
+    closed_syms = []
+    for pos in list(state["open_positions"]):
+        pid = pos.get("position_id")
+        upnl = pos.get("unrealized_pnl", 0)
+        if not pid or upnl is None or upnl <= 0:
+            continue
+        qty = pos.get("qty", 0)
+        if qty <= 0:
+            continue
+        log.info(f"  CLOSE GREEN: {pos['symbol']} "
+                 f"pnl=${upnl:.4f} qty={qty}")
+        try:
+            res = client.close_short(
+                pos["symbol"], qty, position_id=pid)
+            if res.get("code") == 0:
+                closed_count += 1
+                closed_syms.append(pos["symbol"])
+                log.info("    Closed OK")
+            else:
+                log.warning(f"    Close failed: {res}")
+        except Exception as e:
+            log.warning(f"    Close error: {e}")
+    return f"Closed {closed_count}: {', '.join(closed_syms)}"
+
+
+def close_position_by_id(client, state, position_id):
+    """Close a specific position by its ID."""
+    pos = None
+    for p in state["open_positions"]:
+        if p.get("position_id") == position_id:
+            pos = p
+            break
+    if not pos:
+        return f"Position {position_id} not found"
+    qty = pos.get("qty", 0)
+    if qty <= 0:
+        return f"Invalid qty for {pos['symbol']}"
+    log.info(f"  CLOSE: {pos['symbol']} "
+             f"qty={qty} pid={position_id}")
+    try:
+        res = client.close_short(
+            pos["symbol"], qty, position_id=position_id)
+        if res.get("code") == 0:
+            log.info("    Closed OK")
+            return f"Closed {pos['symbol']}"
+        else:
+            log.warning(f"    Close failed: {res}")
+            return f"Failed: {res.get('msg', 'unknown')}"
+    except Exception as e:
+        log.warning(f"    Close error: {e}")
+        return f"Error: {e}"
 
 
 def save_state(state, engine=None):
@@ -760,6 +954,22 @@ def open_shorts(client, state, coin_info, dry_run=True):
         else:
             try:
                 result = client.open_short(sym, qty)
+                if result.get("code") != 0:
+                    # Retry after setting margin/leverage
+                    log.info(f"  {sym} failed, setting "
+                             f"margin mode + retry...")
+                    try:
+                        client.change_margin_mode(
+                            sym, "ISOLATION")
+                    except Exception:
+                        pass
+                    try:
+                        client.change_leverage(
+                            sym, LEVERAGE)
+                    except Exception:
+                        pass
+                    time.sleep(0.2)
+                    result = client.open_short(sym, qty)
                 if result.get("code") == 0:
                     log.info(f"  SHORT {sym} "
                              f"qty={qty} @ ${price}")
@@ -898,13 +1108,16 @@ def main():
     buy_c, sell_c = engine.get_buy_sell_counts()
     log.info(f"Score: {score:+.1f} | Phase: {phase} | "
              f"Buy: {buy_c}/40 | Sell: {sell_c}/40")
-    log.info(f"Armed: {engine.short_armed} | "
-             f"WasGreen: {engine.was_green}")
+    bars_since = engine.n_bars - engine.last_short_bar
+    log.info(f"Bars since last signal: {bars_since} "
+             f"(cooldown: {SHORT_COOLDOWN_BARS})")
     log.info(f"Open positions: "
              f"{len(state['open_positions'])}")
     log.info(f"Polling every {POLL_INTERVAL}s...")
 
-    # Initial cloud sync
+    # Initial live PnL + cloud sync
+    if not dry_run:
+        update_live_pnl(state, client)
     save_state(state, engine)
 
     # Main loop
@@ -923,12 +1136,20 @@ def main():
                      f"Phase: {phase} | "
                      f"Buy: {buy_c}/40 | "
                      f"Sell: {sell_c}/40 | "
-                     f"Armed: {engine.short_armed}")
+                     f"LastSig: {engine.n_bars - engine.last_short_bar}bars")
 
             # Health check + cache save every ~1 hour
             if tick_count % 12 == 0:
                 engine.health_check()
                 engine._save_cache()
+
+            # Update live P&L from Bitunix
+            if not dry_run and state["open_positions"]:
+                update_live_pnl(state, client)
+
+            # Check for close commands from dashboard
+            if not dry_run:
+                poll_close_commands(state, client)
 
             # Sync to dashboard every tick
             save_state(state, engine)

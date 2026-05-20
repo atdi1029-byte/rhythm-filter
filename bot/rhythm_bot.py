@@ -51,7 +51,7 @@ LOG_FILE = os.path.join(
 BLACKLIST_FILE = os.path.join(
     config.DATA_DIR, "blacklist.json")
 APPROVED_FILE = os.path.join(
-    config.DATA_DIR, "approved_coins_7_12.json")
+    config.DATA_DIR, "approved_coins_top9.json")
 
 # Cloud sync
 APPS_SCRIPT_URL = os.environ.get(
@@ -707,6 +707,35 @@ def execute_signal(state, client, signal,
             price_map[t["symbol"]] = float(
                 t["lastPrice"])
 
+    # Count ACTUAL exchange positions per coin
+    # (state can drift — this is the truth)
+    live_count = {}
+    if live:
+        try:
+            pres = client.get_positions()
+            if pres.get("code") == 0:
+                for lp in pres.get("data", []):
+                    sym2 = lp["symbol"]
+                    live_count[sym2] = (
+                        live_count.get(sym2, 0) + 1)
+                log.info(
+                    f"  Exchange positions: "
+                    f"{sum(live_count.values())} total "
+                    f"across {len(live_count)} coins")
+            else:
+                log.warning(
+                    f"  Exchange API error: "
+                    f"{pres.get('code')}")
+                log.warning("  ABORTING signal — no "
+                            "trade without exchange check")
+                return 0
+        except Exception as e:
+            log.warning(
+                f"  Can't check exchange: {e}")
+            log.warning("  ABORTING signal — no trade "
+                        "without exchange check")
+            return 0
+
     coins_entered = 0
 
     for sym in trade_symbols:
@@ -722,10 +751,13 @@ def execute_signal(state, client, signal,
         if price == 0:
             continue
 
-        # Check per-coin limit
-        open_count = sum(
-            1 for p in state["open_positions"]
-            if p["symbol"] == sym)
+        # Check per-coin limit against EXCHANGE
+        if live:
+            open_count = live_count.get(sym, 0)
+        else:
+            open_count = sum(
+                1 for p in state["open_positions"]
+                if p["symbol"] == sym)
         if open_count >= MAX_SHORTS_PER_COIN:
             log.info(
                 f"  SKIP {sym}: already {open_count} "
