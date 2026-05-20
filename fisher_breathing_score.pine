@@ -1,0 +1,491 @@
+//@version=6
+indicator("Fisher Breathing Score — 40 Coin Composite",
+     overlay=false, precision=1)
+
+// === SETTINGS ===
+grpFish = "Fisher Transform"
+fishLen = input.int(10, "Lookback Period",
+     group=grpFish, minval=2,
+     tooltip="Period for highest/lowest normalization")
+fishOb = input.float(2.5, "Overbought",
+     group=grpFish, step=0.5,
+     tooltip="Fisher above this = overbought coin")
+fishOs = input.float(-2.5, "Oversold",
+     group=grpFish, step=0.5,
+     tooltip="Fisher below this = oversold coin")
+
+grpScore = "Composite Score"
+scoreTf = input.timeframe("D", "Timeframe",
+     group=grpScore,
+     tooltip="Timeframe to compute Fisher on each coin")
+scoreEmaLen = input.int(9, "Score EMA Length",
+     group=grpScore, minval=1)
+
+grpShort = "Short Signal"
+shortThreshold = input.float(-3.0, "Deep Red Threshold",
+     group=grpShort, step=1.0,
+     tooltip="Score must drop below this to arm")
+shortCooldown = input.int(12, "Cooldown (bars)",
+     group=grpShort, minval=1)
+
+// === FISHER TRANSFORM FUNCTION ===
+fisher_val(float src, int len) =>
+    hh = ta.highest(src, len)
+    ll = ta.lowest(src, len)
+    raw = hh != ll ?
+         (src - ll) / (hh - ll) - 0.5 : 0.0
+    // Clamp to avoid log(0) or log(negative)
+    v1 = math.max(math.min(raw * 2, 0.999), -0.999)
+    // Smooth before transform
+    var float smooth = 0.0
+    smooth := 0.33 * v1 + 0.67 * nz(smooth[1])
+    clamped = math.max(math.min(smooth, 0.999), -0.999)
+    var float fish = 0.0
+    fish := 0.5 * math.log((1 + clamped) /
+         (1 - clamped)) + 0.5 * nz(fish[1])
+    fish
+
+// === PULL FISHER FROM TOP 40 CRYPTOS ===
+// Original 20
+btcFish  = request.security("BINANCE:BTCUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+ethFish  = request.security("BINANCE:ETHUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+xrpFish  = request.security("BINANCE:XRPUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+bnbFish  = request.security("BINANCE:BNBUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+solFish  = request.security("BINANCE:SOLUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+dogeFish = request.security("BINANCE:DOGEUSDT", scoreTf,
+     fisher_val(hl2, fishLen))
+adaFish  = request.security("BINANCE:ADAUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+trxFish  = request.security("BINANCE:TRXUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+avaxFish = request.security("BINANCE:AVAXUSDT", scoreTf,
+     fisher_val(hl2, fishLen))
+shibFish = request.security("BINANCE:SHIBUSDT", scoreTf,
+     fisher_val(hl2, fishLen))
+tonFish  = request.security("BINANCE:TONUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+linkFish = request.security("BINANCE:LINKUSDT", scoreTf,
+     fisher_val(hl2, fishLen))
+suiFish  = request.security("BINANCE:SUIUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+dotFish  = request.security("BINANCE:DOTUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+nearFish = request.security("BINANCE:NEARUSDT", scoreTf,
+     fisher_val(hl2, fishLen))
+uniFish  = request.security("BINANCE:UNIUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+aptFish  = request.security("BINANCE:APTUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+polFish  = request.security("BINANCE:POLUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+arbFish  = request.security("BINANCE:ARBUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+opFish   = request.security("BINANCE:OPUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+
+// New 15
+icpFish   = request.security("BINANCE:ICPUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+hbarFish  = request.security("BINANCE:HBARUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+filFish   = request.security("BINANCE:FILUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+atomFish  = request.security("BINANCE:ATOMUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+imxFish   = request.security("BINANCE:IMXUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+injFish   = request.security("BINANCE:INJUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+stxFish   = request.security("BINANCE:STXUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+ftmFish   = request.security("BINANCE:SUSDT",     scoreTf,
+     fisher_val(hl2, fishLen))
+grtFish   = request.security("BINANCE:GRTUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+thetaFish = request.security("BINANCE:THETAUSDT", scoreTf,
+     fisher_val(hl2, fishLen))
+algoFish  = request.security("BINANCE:ALGOUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+ldoFish   = request.security("BINANCE:LDOUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+aaveFish  = request.security("BINANCE:AAVEUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+mkrFish   = request.security("BINANCE:SKYUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+snxFish   = request.security("BINANCE:SNXUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+
+// Final 5
+vetFish   = request.security("BINANCE:VETUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+xlmFish   = request.security("BINANCE:XLMUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+pepeFish  = request.security("BINANCE:PEPEUSDT",  scoreTf,
+     fisher_val(hl2, fishLen))
+fetFish   = request.security("BINANCE:FETUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+wldFish   = request.security("BINANCE:WLDUSDT",   scoreTf,
+     fisher_val(hl2, fishLen))
+
+// === SCORE EACH COIN ===
+TOTAL_COINS = 40
+
+scoreIt(float fish) =>
+    fish < fishOs ? 1 :
+     fish > fishOb ? -1 : 0
+
+btcScore  = scoreIt(btcFish)
+ethScore  = scoreIt(ethFish)
+xrpScore  = scoreIt(xrpFish)
+bnbScore  = scoreIt(bnbFish)
+solScore  = scoreIt(solFish)
+dogeScore = scoreIt(dogeFish)
+adaScore  = scoreIt(adaFish)
+trxScore  = scoreIt(trxFish)
+avaxScore = scoreIt(avaxFish)
+shibScore = scoreIt(shibFish)
+tonScore  = scoreIt(tonFish)
+linkScore = scoreIt(linkFish)
+suiScore  = scoreIt(suiFish)
+dotScore  = scoreIt(dotFish)
+nearScore = scoreIt(nearFish)
+uniScore  = scoreIt(uniFish)
+aptScore  = scoreIt(aptFish)
+polScore  = scoreIt(polFish)
+arbScore  = scoreIt(arbFish)
+opScore   = scoreIt(opFish)
+icpScore   = scoreIt(icpFish)
+hbarScore  = scoreIt(hbarFish)
+filScore   = scoreIt(filFish)
+atomScore  = scoreIt(atomFish)
+imxScore   = scoreIt(imxFish)
+injScore   = scoreIt(injFish)
+stxScore   = scoreIt(stxFish)
+ftmScore   = scoreIt(ftmFish)
+grtScore   = scoreIt(grtFish)
+thetaScore = scoreIt(thetaFish)
+algoScore  = scoreIt(algoFish)
+ldoScore   = scoreIt(ldoFish)
+aaveScore  = scoreIt(aaveFish)
+mkrScore   = scoreIt(mkrFish)
+snxScore   = scoreIt(snxFish)
+vetScore   = scoreIt(vetFish)
+xlmScore   = scoreIt(xlmFish)
+pepeScore  = scoreIt(pepeFish)
+fetScore   = scoreIt(fetFish)
+wldScore   = scoreIt(wldFish)
+
+// === COMPOSITE FISHER BREATHING SCORE ===
+rawScore = btcScore + ethScore + xrpScore +
+     bnbScore + solScore + dogeScore +
+     adaScore + trxScore + avaxScore +
+     shibScore + tonScore + linkScore +
+     suiScore + dotScore + nearScore +
+     uniScore + aptScore + polScore +
+     arbScore + opScore +
+     icpScore + hbarScore + filScore +
+     atomScore + imxScore + injScore +
+     stxScore + ftmScore + grtScore +
+     thetaScore + algoScore + ldoScore +
+     aaveScore + mkrScore + snxScore +
+     vetScore + xlmScore + pepeScore +
+     fetScore + wldScore
+
+normalizedScore = rawScore * 20.0 / TOTAL_COINS
+fishBreathScore = ta.ema(normalizedScore, scoreEmaLen)
+
+// === ZONE COUNTS ===
+buyCount = 0
+buyCount += btcFish < fishOs ? 1 : 0
+buyCount += ethFish < fishOs ? 1 : 0
+buyCount += xrpFish < fishOs ? 1 : 0
+buyCount += bnbFish < fishOs ? 1 : 0
+buyCount += solFish < fishOs ? 1 : 0
+buyCount += dogeFish < fishOs ? 1 : 0
+buyCount += adaFish < fishOs ? 1 : 0
+buyCount += trxFish < fishOs ? 1 : 0
+buyCount += avaxFish < fishOs ? 1 : 0
+buyCount += shibFish < fishOs ? 1 : 0
+buyCount += tonFish < fishOs ? 1 : 0
+buyCount += linkFish < fishOs ? 1 : 0
+buyCount += suiFish < fishOs ? 1 : 0
+buyCount += dotFish < fishOs ? 1 : 0
+buyCount += nearFish < fishOs ? 1 : 0
+buyCount += uniFish < fishOs ? 1 : 0
+buyCount += aptFish < fishOs ? 1 : 0
+buyCount += polFish < fishOs ? 1 : 0
+buyCount += arbFish < fishOs ? 1 : 0
+buyCount += opFish < fishOs ? 1 : 0
+buyCount += icpFish < fishOs ? 1 : 0
+buyCount += hbarFish < fishOs ? 1 : 0
+buyCount += filFish < fishOs ? 1 : 0
+buyCount += atomFish < fishOs ? 1 : 0
+buyCount += imxFish < fishOs ? 1 : 0
+buyCount += injFish < fishOs ? 1 : 0
+buyCount += stxFish < fishOs ? 1 : 0
+buyCount += ftmFish < fishOs ? 1 : 0
+buyCount += grtFish < fishOs ? 1 : 0
+buyCount += thetaFish < fishOs ? 1 : 0
+buyCount += algoFish < fishOs ? 1 : 0
+buyCount += ldoFish < fishOs ? 1 : 0
+buyCount += aaveFish < fishOs ? 1 : 0
+buyCount += mkrFish < fishOs ? 1 : 0
+buyCount += snxFish < fishOs ? 1 : 0
+buyCount += vetFish < fishOs ? 1 : 0
+buyCount += xlmFish < fishOs ? 1 : 0
+buyCount += pepeFish < fishOs ? 1 : 0
+buyCount += fetFish < fishOs ? 1 : 0
+buyCount += wldFish < fishOs ? 1 : 0
+
+sellCount = 0
+sellCount += btcFish > fishOb ? 1 : 0
+sellCount += ethFish > fishOb ? 1 : 0
+sellCount += xrpFish > fishOb ? 1 : 0
+sellCount += bnbFish > fishOb ? 1 : 0
+sellCount += solFish > fishOb ? 1 : 0
+sellCount += dogeFish > fishOb ? 1 : 0
+sellCount += adaFish > fishOb ? 1 : 0
+sellCount += trxFish > fishOb ? 1 : 0
+sellCount += avaxFish > fishOb ? 1 : 0
+sellCount += shibFish > fishOb ? 1 : 0
+sellCount += tonFish > fishOb ? 1 : 0
+sellCount += linkFish > fishOb ? 1 : 0
+sellCount += suiFish > fishOb ? 1 : 0
+sellCount += dotFish > fishOb ? 1 : 0
+sellCount += nearFish > fishOb ? 1 : 0
+sellCount += uniFish > fishOb ? 1 : 0
+sellCount += aptFish > fishOb ? 1 : 0
+sellCount += polFish > fishOb ? 1 : 0
+sellCount += arbFish > fishOb ? 1 : 0
+sellCount += opFish > fishOb ? 1 : 0
+sellCount += icpFish > fishOb ? 1 : 0
+sellCount += hbarFish > fishOb ? 1 : 0
+sellCount += filFish > fishOb ? 1 : 0
+sellCount += atomFish > fishOb ? 1 : 0
+sellCount += imxFish > fishOb ? 1 : 0
+sellCount += injFish > fishOb ? 1 : 0
+sellCount += stxFish > fishOb ? 1 : 0
+sellCount += ftmFish > fishOb ? 1 : 0
+sellCount += grtFish > fishOb ? 1 : 0
+sellCount += thetaFish > fishOb ? 1 : 0
+sellCount += algoFish > fishOb ? 1 : 0
+sellCount += ldoFish > fishOb ? 1 : 0
+sellCount += aaveFish > fishOb ? 1 : 0
+sellCount += mkrFish > fishOb ? 1 : 0
+sellCount += snxFish > fishOb ? 1 : 0
+sellCount += vetFish > fishOb ? 1 : 0
+sellCount += xlmFish > fishOb ? 1 : 0
+sellCount += pepeFish > fishOb ? 1 : 0
+sellCount += fetFish > fishOb ? 1 : 0
+sellCount += wldFish > fishOb ? 1 : 0
+
+// === PHASE CLASSIFICATION ===
+isBuyPhase  = fishBreathScore >= 5
+isSellPhase = fishBreathScore <= -5
+isNeutral   = not isBuyPhase and not isSellPhase
+
+// === PHASE AGE ===
+inhaleStart = isBuyPhase and not isBuyPhase[1]
+exhaleStart = isSellPhase and not isSellPhase[1]
+barsPerDay = 86400 / timeframe.in_seconds()
+barsInInhale = ta.barssince(inhaleStart)
+barsInExhale = ta.barssince(exhaleStart)
+phaseAgeDays = isBuyPhase ?
+     (na(barsInInhale) ? 0.0 :
+     barsInInhale / barsPerDay) :
+     isSellPhase ?
+     (na(barsInExhale) ? 0.0 :
+     barsInExhale / barsPerDay) : 0.0
+
+// === SHORT SIGNAL DETECTION ===
+var bool wasGreen = false
+var bool shortArmed = false
+var int lastShortBar = 0
+
+if fishBreathScore > 0
+    wasGreen := true
+
+if fishBreathScore < shortThreshold and wasGreen
+    shortArmed := true
+
+shortFired = false
+if shortArmed and fishBreathScore > fishBreathScore[1]
+     and fishBreathScore[1] <= fishBreathScore[2]
+     and fishBreathScore < 0
+     and (bar_index - lastShortBar) >= shortCooldown
+    shortFired := true
+    shortArmed := false
+    lastShortBar := bar_index
+    wasGreen := false
+
+if shortArmed and fishBreathScore > 0
+    shortArmed := false
+    wasGreen := false
+
+// === DISPLAY ===
+scoreColor = fishBreathScore > 5 ?
+     color.new(#00E676, 0) :
+     fishBreathScore > 0 ?
+     color.new(#81C784, 0) :
+     fishBreathScore < -5 ?
+     color.new(#FF1744, 0) :
+     fishBreathScore < 0 ?
+     color.new(#EF9A9A, 0) :
+     color.new(#FFD600, 0)
+
+plot(fishBreathScore, "Fisher Breathing Score",
+     color=scoreColor, linewidth=3,
+     style=plot.style_area)
+
+// Reference lines
+hline(10, "Strong Buy",
+     color=color.new(#00E676, 60),
+     linestyle=hline.style_dotted)
+hline(5, "Buy Zone",
+     color=color.new(#00E676, 70),
+     linestyle=hline.style_dashed)
+hline(0, "Neutral",
+     color=color.new(#666666, 50),
+     linestyle=hline.style_dotted)
+hline(-5, "Sell Zone",
+     color=color.new(#FF1744, 70),
+     linestyle=hline.style_dashed)
+hline(-10, "Strong Sell",
+     color=color.new(#FF1744, 60),
+     linestyle=hline.style_dotted)
+
+// Phase background
+bgcolor(isBuyPhase ?
+     color.new(#00E676, 92) :
+     isSellPhase ?
+     color.new(#FF1744, 92) : na,
+     title="Phase BG")
+
+// Short signal arrow
+plotshape(shortFired, title="SHORT",
+     location=location.top,
+     style=shape.triangledown,
+     size=size.normal,
+     color=color.new(#FF6D00, 0),
+     text="SHORT")
+
+// === ALERTS ===
+alertcondition(shortFired,
+     title="Fisher Breathing Short Signal",
+     message="Fisher Breathing: Deep red rollover — SHORT")
+
+if shortFired
+    alert('{"signal":"SHORT","type":"fisher",' +
+         '"score":' +
+         str.tostring(fishBreathScore, "#.##") +
+         ',"buyZone":' + str.tostring(buyCount) +
+         ',"sellZone":' + str.tostring(sellCount) +
+         ',"raw":' +
+         str.tostring(normalizedScore, "#.##") +
+         '}', alert.freq_once_per_bar)
+
+// === INFO TABLE ===
+var table t = table.new(position.top_right, 2, 9,
+     bgcolor=color.new(#1E1E1E, 10),
+     border_color=color.gray, border_width=1)
+
+if barstate.islast
+    // Title
+    table.cell(t, 0, 0, "Fisher Breathing",
+         text_color=color.new(#BB86FC, 0),
+         text_size=size.small,
+         bgcolor=color.new(#333333, 0))
+    phase = isBuyPhase ? "INHALE" :
+         isSellPhase ? "EXHALE" : "BETWEEN"
+    phCol = isBuyPhase ? color.green :
+         isSellPhase ? color.red : color.yellow
+    table.cell(t, 1, 0, phase,
+         text_color=phCol,
+         text_size=size.small,
+         bgcolor=color.new(#333333, 0))
+
+    // Score
+    table.cell(t, 0, 1, "Score",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 1,
+         str.tostring(fishBreathScore, "#.#"),
+         text_color=phCol,
+         text_size=size.tiny)
+
+    // Oversold
+    table.cell(t, 0, 2, "Oversold",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 2,
+         str.tostring(buyCount) + "/40",
+         text_color=color.green,
+         text_size=size.tiny)
+
+    // Overbought
+    table.cell(t, 0, 3, "Overbought",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 3,
+         str.tostring(sellCount) + "/40",
+         text_color=color.red,
+         text_size=size.tiny)
+
+    // Longs
+    table.cell(t, 0, 4, "Longs",
+         text_color=color.gray,
+         text_size=size.tiny)
+    longAdv = isBuyPhase ? "GO" :
+         isNeutral ? "WAIT" : "NO"
+    longCol = isBuyPhase ? color.green :
+         isNeutral ? color.yellow : color.red
+    table.cell(t, 1, 4, longAdv,
+         text_color=longCol,
+         text_size=size.tiny)
+
+    // Shorts
+    table.cell(t, 0, 5, "Shorts",
+         text_color=color.gray,
+         text_size=size.tiny)
+    shortAdv = isSellPhase ? "GO" :
+         isNeutral ? "WAIT" : "NO"
+    shortCol = isSellPhase ? color.green :
+         isNeutral ? color.yellow : color.red
+    table.cell(t, 1, 5, shortAdv,
+         text_color=shortCol,
+         text_size=size.tiny)
+
+    // Phase Age
+    table.cell(t, 0, 6, "Phase Age",
+         text_color=color.gray,
+         text_size=size.tiny)
+    phAgeStr = (isBuyPhase or isSellPhase) ?
+         str.tostring(phaseAgeDays, "#") + "d" : "—"
+    table.cell(t, 1, 6, phAgeStr,
+         text_color=(isBuyPhase or isSellPhase) ?
+         color.green : color.gray,
+         text_size=size.tiny)
+
+    // Short armed
+    table.cell(t, 0, 7, "Short",
+         text_color=color.gray,
+         text_size=size.tiny)
+    shortStatus = shortArmed ? "ARMED" : "—"
+    shortStatCol = shortArmed ?
+         color.new(#FF6D00, 0) : color.gray
+    table.cell(t, 1, 7, shortStatus,
+         text_color=shortStatCol,
+         text_size=size.tiny)
+
+    // Timeframe
+    table.cell(t, 0, 8, "TF",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 8, scoreTf,
+         text_color=color.white,
+         text_size=size.tiny)
