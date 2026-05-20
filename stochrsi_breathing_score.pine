@@ -1,0 +1,488 @@
+//@version=6
+indicator("StochRSI Breathing Score — 40 Coin Composite",
+     overlay=false, precision=1)
+
+// === SETTINGS ===
+grpSRSI = "Stochastic RSI"
+rsiLen = input.int(14, "RSI Length",
+     group=grpSRSI, minval=2)
+stochLen = input.int(14, "Stochastic Length",
+     group=grpSRSI, minval=2)
+kSmooth = input.int(3, "K Smoothing",
+     group=grpSRSI, minval=1)
+dSmooth = input.int(3, "D Smoothing",
+     group=grpSRSI, minval=1)
+obLevel = input.float(80, "Overbought",
+     group=grpSRSI, minval=50, maxval=100)
+osLevel = input.float(20, "Oversold",
+     group=grpSRSI, minval=0, maxval=50)
+
+grpScore = "Composite Score"
+scoreTf = input.timeframe("D", "Timeframe",
+     group=grpScore,
+     tooltip="Timeframe to compute StochRSI on each coin")
+scoreEmaLen = input.int(9, "Score EMA Length",
+     group=grpScore, minval=1)
+
+grpShort = "Short Signal"
+shortThreshold = input.float(-3.0, "Deep Red Threshold",
+     group=grpShort, step=1.0,
+     tooltip="Score must drop below this to arm")
+shortCooldown = input.int(12, "Cooldown (bars)",
+     group=grpShort, minval=1)
+
+// === STOCH RSI FUNCTION ===
+// Returns K line (smoothed stochastic of RSI)
+stochrsi_k(float src, int rLen, int sLen,
+     int kSm) =>
+    rsi = ta.rsi(src, rLen)
+    hh = ta.highest(rsi, sLen)
+    ll = ta.lowest(rsi, sLen)
+    stoch = hh != ll ?
+         (rsi - ll) / (hh - ll) * 100 : 50.0
+    ta.sma(stoch, kSm)
+
+// === PULL STOCHRSI FROM TOP 40 CRYPTOS ===
+// Original 20
+btcSR  = request.security("BINANCE:BTCUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+ethSR  = request.security("BINANCE:ETHUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+xrpSR  = request.security("BINANCE:XRPUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+bnbSR  = request.security("BINANCE:BNBUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+solSR  = request.security("BINANCE:SOLUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+dogeSR = request.security("BINANCE:DOGEUSDT", scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+adaSR  = request.security("BINANCE:ADAUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+trxSR  = request.security("BINANCE:TRXUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+avaxSR = request.security("BINANCE:AVAXUSDT", scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+shibSR = request.security("BINANCE:SHIBUSDT", scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+tonSR  = request.security("BINANCE:TONUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+linkSR = request.security("BINANCE:LINKUSDT", scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+suiSR  = request.security("BINANCE:SUIUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+dotSR  = request.security("BINANCE:DOTUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+nearSR = request.security("BINANCE:NEARUSDT", scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+uniSR  = request.security("BINANCE:UNIUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+aptSR  = request.security("BINANCE:APTUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+polSR  = request.security("BINANCE:POLUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+arbSR  = request.security("BINANCE:ARBUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+opSR   = request.security("BINANCE:OPUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+
+// New 15
+icpSR   = request.security("BINANCE:ICPUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+hbarSR  = request.security("BINANCE:HBARUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+filSR   = request.security("BINANCE:FILUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+atomSR  = request.security("BINANCE:ATOMUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+imxSR   = request.security("BINANCE:IMXUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+injSR   = request.security("BINANCE:INJUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+stxSR   = request.security("BINANCE:STXUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+ftmSR   = request.security("BINANCE:SUSDT",     scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+grtSR   = request.security("BINANCE:GRTUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+thetaSR = request.security("BINANCE:THETAUSDT", scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+algoSR  = request.security("BINANCE:ALGOUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+ldoSR   = request.security("BINANCE:LDOUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+aaveSR  = request.security("BINANCE:AAVEUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+mkrSR   = request.security("BINANCE:SKYUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+snxSR   = request.security("BINANCE:SNXUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+
+// Final 5
+vetSR   = request.security("BINANCE:VETUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+xlmSR   = request.security("BINANCE:XLMUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+pepeSR  = request.security("BINANCE:PEPEUSDT",  scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+fetSR   = request.security("BINANCE:FETUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+wldSR   = request.security("BINANCE:WLDUSDT",   scoreTf,
+     stochrsi_k(close, rsiLen, stochLen, kSmooth))
+
+// === SCORE EACH COIN ===
+TOTAL_COINS = 40
+
+scoreIt(float sr) =>
+    sr < osLevel ? 1 :
+     sr > obLevel ? -1 : 0
+
+btcScore  = scoreIt(btcSR)
+ethScore  = scoreIt(ethSR)
+xrpScore  = scoreIt(xrpSR)
+bnbScore  = scoreIt(bnbSR)
+solScore  = scoreIt(solSR)
+dogeScore = scoreIt(dogeSR)
+adaScore  = scoreIt(adaSR)
+trxScore  = scoreIt(trxSR)
+avaxScore = scoreIt(avaxSR)
+shibScore = scoreIt(shibSR)
+tonScore  = scoreIt(tonSR)
+linkScore = scoreIt(linkSR)
+suiScore  = scoreIt(suiSR)
+dotScore  = scoreIt(dotSR)
+nearScore = scoreIt(nearSR)
+uniScore  = scoreIt(uniSR)
+aptScore  = scoreIt(aptSR)
+polScore  = scoreIt(polSR)
+arbScore  = scoreIt(arbSR)
+opScore   = scoreIt(opSR)
+icpScore   = scoreIt(icpSR)
+hbarScore  = scoreIt(hbarSR)
+filScore   = scoreIt(filSR)
+atomScore  = scoreIt(atomSR)
+imxScore   = scoreIt(imxSR)
+injScore   = scoreIt(injSR)
+stxScore   = scoreIt(stxSR)
+ftmScore   = scoreIt(ftmSR)
+grtScore   = scoreIt(grtSR)
+thetaScore = scoreIt(thetaSR)
+algoScore  = scoreIt(algoSR)
+ldoScore   = scoreIt(ldoSR)
+aaveScore  = scoreIt(aaveSR)
+mkrScore   = scoreIt(mkrSR)
+snxScore   = scoreIt(snxSR)
+vetScore   = scoreIt(vetSR)
+xlmScore   = scoreIt(xlmSR)
+pepeScore  = scoreIt(pepeSR)
+fetScore   = scoreIt(fetSR)
+wldScore   = scoreIt(wldSR)
+
+// === COMPOSITE STOCHRSI BREATHING SCORE ===
+rawScore = btcScore + ethScore + xrpScore +
+     bnbScore + solScore + dogeScore +
+     adaScore + trxScore + avaxScore +
+     shibScore + tonScore + linkScore +
+     suiScore + dotScore + nearScore +
+     uniScore + aptScore + polScore +
+     arbScore + opScore +
+     icpScore + hbarScore + filScore +
+     atomScore + imxScore + injScore +
+     stxScore + ftmScore + grtScore +
+     thetaScore + algoScore + ldoScore +
+     aaveScore + mkrScore + snxScore +
+     vetScore + xlmScore + pepeScore +
+     fetScore + wldScore
+
+normalizedScore = rawScore * 20.0 / TOTAL_COINS
+srsiBreathScore = ta.ema(normalizedScore, scoreEmaLen)
+
+// === ZONE COUNTS ===
+buyCount = 0
+buyCount += btcSR < osLevel ? 1 : 0
+buyCount += ethSR < osLevel ? 1 : 0
+buyCount += xrpSR < osLevel ? 1 : 0
+buyCount += bnbSR < osLevel ? 1 : 0
+buyCount += solSR < osLevel ? 1 : 0
+buyCount += dogeSR < osLevel ? 1 : 0
+buyCount += adaSR < osLevel ? 1 : 0
+buyCount += trxSR < osLevel ? 1 : 0
+buyCount += avaxSR < osLevel ? 1 : 0
+buyCount += shibSR < osLevel ? 1 : 0
+buyCount += tonSR < osLevel ? 1 : 0
+buyCount += linkSR < osLevel ? 1 : 0
+buyCount += suiSR < osLevel ? 1 : 0
+buyCount += dotSR < osLevel ? 1 : 0
+buyCount += nearSR < osLevel ? 1 : 0
+buyCount += uniSR < osLevel ? 1 : 0
+buyCount += aptSR < osLevel ? 1 : 0
+buyCount += polSR < osLevel ? 1 : 0
+buyCount += arbSR < osLevel ? 1 : 0
+buyCount += opSR < osLevel ? 1 : 0
+buyCount += icpSR < osLevel ? 1 : 0
+buyCount += hbarSR < osLevel ? 1 : 0
+buyCount += filSR < osLevel ? 1 : 0
+buyCount += atomSR < osLevel ? 1 : 0
+buyCount += imxSR < osLevel ? 1 : 0
+buyCount += injSR < osLevel ? 1 : 0
+buyCount += stxSR < osLevel ? 1 : 0
+buyCount += ftmSR < osLevel ? 1 : 0
+buyCount += grtSR < osLevel ? 1 : 0
+buyCount += thetaSR < osLevel ? 1 : 0
+buyCount += algoSR < osLevel ? 1 : 0
+buyCount += ldoSR < osLevel ? 1 : 0
+buyCount += aaveSR < osLevel ? 1 : 0
+buyCount += mkrSR < osLevel ? 1 : 0
+buyCount += snxSR < osLevel ? 1 : 0
+buyCount += vetSR < osLevel ? 1 : 0
+buyCount += xlmSR < osLevel ? 1 : 0
+buyCount += pepeSR < osLevel ? 1 : 0
+buyCount += fetSR < osLevel ? 1 : 0
+buyCount += wldSR < osLevel ? 1 : 0
+
+sellCount = 0
+sellCount += btcSR > obLevel ? 1 : 0
+sellCount += ethSR > obLevel ? 1 : 0
+sellCount += xrpSR > obLevel ? 1 : 0
+sellCount += bnbSR > obLevel ? 1 : 0
+sellCount += solSR > obLevel ? 1 : 0
+sellCount += dogeSR > obLevel ? 1 : 0
+sellCount += adaSR > obLevel ? 1 : 0
+sellCount += trxSR > obLevel ? 1 : 0
+sellCount += avaxSR > obLevel ? 1 : 0
+sellCount += shibSR > obLevel ? 1 : 0
+sellCount += tonSR > obLevel ? 1 : 0
+sellCount += linkSR > obLevel ? 1 : 0
+sellCount += suiSR > obLevel ? 1 : 0
+sellCount += dotSR > obLevel ? 1 : 0
+sellCount += nearSR > obLevel ? 1 : 0
+sellCount += uniSR > obLevel ? 1 : 0
+sellCount += aptSR > obLevel ? 1 : 0
+sellCount += polSR > obLevel ? 1 : 0
+sellCount += arbSR > obLevel ? 1 : 0
+sellCount += opSR > obLevel ? 1 : 0
+sellCount += icpSR > obLevel ? 1 : 0
+sellCount += hbarSR > obLevel ? 1 : 0
+sellCount += filSR > obLevel ? 1 : 0
+sellCount += atomSR > obLevel ? 1 : 0
+sellCount += imxSR > obLevel ? 1 : 0
+sellCount += injSR > obLevel ? 1 : 0
+sellCount += stxSR > obLevel ? 1 : 0
+sellCount += ftmSR > obLevel ? 1 : 0
+sellCount += grtSR > obLevel ? 1 : 0
+sellCount += thetaSR > obLevel ? 1 : 0
+sellCount += algoSR > obLevel ? 1 : 0
+sellCount += ldoSR > obLevel ? 1 : 0
+sellCount += aaveSR > obLevel ? 1 : 0
+sellCount += mkrSR > obLevel ? 1 : 0
+sellCount += snxSR > obLevel ? 1 : 0
+sellCount += vetSR > obLevel ? 1 : 0
+sellCount += xlmSR > obLevel ? 1 : 0
+sellCount += pepeSR > obLevel ? 1 : 0
+sellCount += fetSR > obLevel ? 1 : 0
+sellCount += wldSR > obLevel ? 1 : 0
+
+// === PHASE CLASSIFICATION ===
+isBuyPhase  = srsiBreathScore >= 5
+isSellPhase = srsiBreathScore <= -5
+isNeutral   = not isBuyPhase and not isSellPhase
+
+// === PHASE AGE ===
+inhaleStart = isBuyPhase and not isBuyPhase[1]
+exhaleStart = isSellPhase and not isSellPhase[1]
+barsPerDay = 86400 / timeframe.in_seconds()
+barsInInhale = ta.barssince(inhaleStart)
+barsInExhale = ta.barssince(exhaleStart)
+phaseAgeDays = isBuyPhase ?
+     (na(barsInInhale) ? 0.0 :
+     barsInInhale / barsPerDay) :
+     isSellPhase ?
+     (na(barsInExhale) ? 0.0 :
+     barsInExhale / barsPerDay) : 0.0
+
+// === SHORT SIGNAL DETECTION ===
+var bool wasGreen = false
+var bool shortArmed = false
+var int lastShortBar = 0
+
+if srsiBreathScore > 0
+    wasGreen := true
+
+if srsiBreathScore < shortThreshold and wasGreen
+    shortArmed := true
+
+shortFired = false
+if shortArmed and srsiBreathScore > srsiBreathScore[1]
+     and srsiBreathScore[1] <= srsiBreathScore[2]
+     and srsiBreathScore < 0
+     and (bar_index - lastShortBar) >= shortCooldown
+    shortFired := true
+    shortArmed := false
+    lastShortBar := bar_index
+    wasGreen := false
+
+if shortArmed and srsiBreathScore > 0
+    shortArmed := false
+    wasGreen := false
+
+// === DISPLAY ===
+scoreColor = srsiBreathScore > 5 ?
+     color.new(#00E676, 0) :
+     srsiBreathScore > 0 ?
+     color.new(#81C784, 0) :
+     srsiBreathScore < -5 ?
+     color.new(#FF1744, 0) :
+     srsiBreathScore < 0 ?
+     color.new(#EF9A9A, 0) :
+     color.new(#FFD600, 0)
+
+plot(srsiBreathScore, "StochRSI Breathing Score",
+     color=scoreColor, linewidth=3,
+     style=plot.style_area)
+
+// Reference lines
+hline(10, "Strong Buy",
+     color=color.new(#00E676, 60),
+     linestyle=hline.style_dotted)
+hline(5, "Buy Zone",
+     color=color.new(#00E676, 70),
+     linestyle=hline.style_dashed)
+hline(0, "Neutral",
+     color=color.new(#666666, 50),
+     linestyle=hline.style_dotted)
+hline(-5, "Sell Zone",
+     color=color.new(#FF1744, 70),
+     linestyle=hline.style_dashed)
+hline(-10, "Strong Sell",
+     color=color.new(#FF1744, 60),
+     linestyle=hline.style_dotted)
+
+// Phase background
+bgcolor(isBuyPhase ?
+     color.new(#00E676, 92) :
+     isSellPhase ?
+     color.new(#FF1744, 92) : na,
+     title="Phase BG")
+
+// Short signal arrow
+plotshape(shortFired, title="SHORT",
+     location=location.top,
+     style=shape.triangledown,
+     size=size.normal,
+     color=color.new(#FF6D00, 0),
+     text="SHORT")
+
+// === ALERTS ===
+alertcondition(shortFired,
+     title="StochRSI Breathing Short Signal",
+     message="StochRSI Breathing: Deep red rollover — SHORT")
+
+if shortFired
+    alert('{"signal":"SHORT","type":"stochrsi",' +
+         '"score":' +
+         str.tostring(srsiBreathScore, "#.##") +
+         ',"buyZone":' + str.tostring(buyCount) +
+         ',"sellZone":' + str.tostring(sellCount) +
+         ',"raw":' +
+         str.tostring(normalizedScore, "#.##") +
+         '}', alert.freq_once_per_bar)
+
+// === INFO TABLE ===
+var table t = table.new(position.top_right, 2, 9,
+     bgcolor=color.new(#1E1E1E, 10),
+     border_color=color.gray, border_width=1)
+
+if barstate.islast
+    // Title
+    table.cell(t, 0, 0, "StochRSI Breathing",
+         text_color=color.new(#FFD700, 0),
+         text_size=size.small,
+         bgcolor=color.new(#333333, 0))
+    phase = isBuyPhase ? "INHALE" :
+         isSellPhase ? "EXHALE" : "BETWEEN"
+    phCol = isBuyPhase ? color.green :
+         isSellPhase ? color.red : color.yellow
+    table.cell(t, 1, 0, phase,
+         text_color=phCol,
+         text_size=size.small,
+         bgcolor=color.new(#333333, 0))
+
+    // Score
+    table.cell(t, 0, 1, "Score",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 1,
+         str.tostring(srsiBreathScore, "#.#"),
+         text_color=phCol,
+         text_size=size.tiny)
+
+    // Oversold
+    table.cell(t, 0, 2, "Oversold",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 2,
+         str.tostring(buyCount) + "/40",
+         text_color=color.green,
+         text_size=size.tiny)
+
+    // Overbought
+    table.cell(t, 0, 3, "Overbought",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 3,
+         str.tostring(sellCount) + "/40",
+         text_color=color.red,
+         text_size=size.tiny)
+
+    // Longs
+    table.cell(t, 0, 4, "Longs",
+         text_color=color.gray,
+         text_size=size.tiny)
+    longAdv = isBuyPhase ? "GO" :
+         isNeutral ? "WAIT" : "NO"
+    longCol = isBuyPhase ? color.green :
+         isNeutral ? color.yellow : color.red
+    table.cell(t, 1, 4, longAdv,
+         text_color=longCol,
+         text_size=size.tiny)
+
+    // Shorts
+    table.cell(t, 0, 5, "Shorts",
+         text_color=color.gray,
+         text_size=size.tiny)
+    shortAdv = isSellPhase ? "GO" :
+         isNeutral ? "WAIT" : "NO"
+    shortCol = isSellPhase ? color.green :
+         isNeutral ? color.yellow : color.red
+    table.cell(t, 1, 5, shortAdv,
+         text_color=shortCol,
+         text_size=size.tiny)
+
+    // Phase Age
+    table.cell(t, 0, 6, "Phase Age",
+         text_color=color.gray,
+         text_size=size.tiny)
+    phAgeStr = (isBuyPhase or isSellPhase) ?
+         str.tostring(phaseAgeDays, "#") + "d" : "—"
+    table.cell(t, 1, 6, phAgeStr,
+         text_color=(isBuyPhase or isSellPhase) ?
+         color.green : color.gray,
+         text_size=size.tiny)
+
+    // Short armed
+    table.cell(t, 0, 7, "Short",
+         text_color=color.gray,
+         text_size=size.tiny)
+    shortStatus = shortArmed ? "ARMED" : "—"
+    shortStatCol = shortArmed ?
+         color.new(#FF6D00, 0) : color.gray
+    table.cell(t, 1, 7, shortStatus,
+         text_color=shortStatCol,
+         text_size=size.tiny)
+
+    // Timeframe
+    table.cell(t, 0, 8, "TF",
+         text_color=color.gray,
+         text_size=size.tiny)
+    table.cell(t, 1, 8, scoreTf,
+         text_color=color.white,
+         text_size=size.tiny)
