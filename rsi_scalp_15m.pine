@@ -1,0 +1,347 @@
+//@version=6
+indicator("RSI Trendline Scalp 15m", overlay=false)
+
+// === INPUTS ===
+rsiLength       = input(14, "RSI Length")
+rsiMaLength     = input(14, "RSI MA Length")
+pivotStrength   = input(3, "Pivot Strength")
+touchSensitivity = input(4.0, "Touch Sensitivity")
+minTouches      = input(2, "Minimum Touches")
+minBars         = input(15, "Minimum Bars for Setup")
+startLevel      = input(60, "RSI Level to Start Trendline")
+maxSignals      = input(2, "Max Signals Per Trendline")
+oversoldLevel   = input(30, "Oversold Level")
+maxBreakoutRsi  = input(50, "Max RSI for Breakout")
+lookbackBars    = input(20, "Oversold Lookback Bars")
+
+// === FAILED BREAKOUT SHORT ===
+useShortSignals = input(true, "Enable Short Signals (Failed Breakouts)")
+failureWindow   = input(15, "Failure Window (bars)")
+maxShortSignals = input(2, "Max Short Signals Per Trendline")
+
+// === MACD FILTER ===
+useMacdFilter   = input(true, "Use MACD Confirmation")
+macdFast        = input(12, "MACD Fast Length")
+macdSlow        = input(26, "MACD Slow Length")
+macdSignalLen   = input(9, "MACD Signal Length")
+
+// === VOLUME FILTER ===
+useVolumeFilter   = input(true, "Use Volume Confirmation")
+volumeLength      = input(20, "Volume MA Length")
+volumeThreshold   = input.float(0.7, "Volume Threshold (x Average)",
+     minval=0.5, maxval=3.0, step=0.1)
+
+// ============================================================
+// All RSI / trendline / MACD / volume logic runs on 15m
+// via request.security.  We pack every value we need into a
+// single tuple so we only make ONE security call.
+// ============================================================
+
+// --- 15m computation function ---
+calc15m() =>
+    // RSI
+    _rsi   = ta.rsi(close, rsiLength)
+    _rsiMa = ta.sma(_rsi, rsiMaLength)
+
+    // MACD
+    [_macdLine, _sigLine, _hist] = ta.macd(close, macdFast,
+         macdSlow, macdSignalLen)
+    _histRising = _hist > _hist[1] and _hist[1] > _hist[2]
+    _histFalling = _hist < _hist[1] and _hist[1] < _hist[2]
+
+    // Volume
+    _volMA = ta.sma(volume, volumeLength)
+    _volAbove = volume >= _volMA * volumeThreshold
+
+    // Pivot highs on RSI
+    _pivotHigh = ta.pivothigh(_rsi, pivotStrength, pivotStrength)
+
+    // Lowest RSI over lookback (for oversold check)
+    _lowestRsi = ta.lowest(_rsi, lookbackBars)
+
+    [_rsi, _rsiMa, _histRising, _histFalling, _volAbove,
+     _pivotHigh, _lowestRsi, bar_index]
+
+// --- Pull 15m values ---
+[rsi15, rsiMa15, histRising15, histFalling15, volAbove15,
+ pivotHigh15, lowestRsi15, barIdx15] = request.security(
+     syminfo.tickerid, "15", calc15m(), lookahead=barmerge.lookahead_off)
+
+// Derived booleans
+macdConfirmed   = not useMacdFilter or histRising15
+volumeConfirmed = not useVolumeFilter or volAbove15
+wasOversoldRecently = lowestRsi15 < oversoldLevel
+
+// === STATE (persistent across bars) ===
+var float anchor1_rsi    = na
+var int   anchor1_bar    = na
+var float anchor2_rsi    = na
+var int   anchor2_bar    = na
+var int   touchCount     = 0
+var bool  trendlineActive = false
+var int   signalCount    = 0
+var int   barsSinceCross = 100
+
+// Failed breakout state
+var bool  potentialFailure = false
+var int   failureBar       = 0
+var int   shortSignalCount = 0
+
+// Alert dedup (reset each 15m bar)
+var bool buyAlertSent   = false
+var bool shortAlertSent = false
+if ta.change(time("15")) != 0
+    buyAlertSent   := false
+    shortAlertSent := false
+
+// === TRENDLINE MATH ===
+calcTrendlineValue(bar) =>
+    if na(anchor1_bar) or na(anchor2_bar) or anchor1_bar == anchor2_bar
+        na
+    else
+        slope = (anchor2_rsi - anchor1_rsi) /
+             (anchor2_bar - anchor1_bar)
+        anchor1_rsi + slope * (bar - anchor1_bar)
+
+// === ANCHOR 1: Pivot at/above startLevel ===
+if not na(pivotHigh15) and pivotHigh15 >= startLevel
+    if na(anchor1_rsi) or pivotHigh15 > anchor1_rsi
+        pivotBar = barIdx15 - pivotStrength
+        trendAtPivot = trendlineActive ?
+             calcTrendlineValue(pivotBar) : na
+        if not trendlineActive or na(trendAtPivot) or
+             pivotHigh15 > trendAtPivot
+            anchor1_rsi      := pivotHigh15
+            anchor1_bar      := pivotBar
+            anchor2_rsi      := na
+            anchor2_bar      := na
+            touchCount       := 1
+            trendlineActive  := false
+            signalCount      := 0
+            shortSignalCount := 0
+            barsSinceCross   := 100
+            potentialFailure := false
+
+// === ANCHOR 2: Lower pivot → activate trendline ===
+if not na(anchor1_bar) and na(anchor2_bar) and
+     not na(pivotHigh15) and pivotHigh15 < startLevel
+    if pivotHigh15 < anchor1_rsi
+        anchor2_rsi     := pivotHigh15
+        anchor2_bar     := barIdx15 - pivotStrength
+        trendlineActive := true
+        touchCount      := 2
+
+// === COUNT TOUCHES ===
+if trendlineActive and not na(pivotHigh15) and
+     pivotHigh15 < startLevel
+    pivotBar = barIdx15 - pivotStrength
+    expectedRsi = calcTrendlineValue(pivotBar)
+    if not na(expectedRsi)
+        if pivotHigh15 <= expectedRsi + touchSensitivity and
+             pivotHigh15 >= expectedRsi - touchSensitivity
+            touchCount := touchCount + 1
+        else if pivotHigh15 < anchor2_rsi
+            anchor2_rsi := pivotHigh15
+            anchor2_bar := pivotBar
+            touchCount  := touchCount + 1
+
+// === TRENDLINE VALUES ===
+currentTrendValue = trendlineActive ?
+     calcTrendlineValue(barIdx15) : na
+prevTrendValue = trendlineActive ?
+     calcTrendlineValue(barIdx15 - 1) : na
+
+// === BREAKOUT DETECTION ===
+barsElapsed = trendlineActive and not na(anchor1_bar) ?
+     barIdx15 - anchor1_bar : 0
+validTime = barsElapsed >= minBars
+
+// Cross detection
+justCrossed = not na(currentTrendValue) and
+     not na(prevTrendValue) and
+     rsi15 > currentTrendValue and rsi15[1] <= prevTrendValue
+
+if justCrossed
+    barsSinceCross := 0
+else
+    barsSinceCross := barsSinceCross + 1
+
+crossedAbove = barsSinceCross <= 5 and rsi15 > currentTrendValue
+
+// Buy zone
+inBuyZone = rsi15 >= oversoldLevel - 2 and rsi15 < maxBreakoutRsi
+
+// === BUY SIGNAL ===
+breakoutCondition = trendlineActive
+     and crossedAbove
+     and validTime
+     and touchCount >= minTouches
+     and wasOversoldRecently
+     and inBuyZone
+     and signalCount < maxSignals
+     and macdConfirmed
+     and volumeConfirmed
+
+if breakoutCondition
+    signalCount    := signalCount + 1
+    barsSinceCross := 100
+    potentialFailure := false
+
+// === FAILED BREAKOUT SHORT ===
+crossedWithoutVolume = justCrossed and not volAbove15 and
+     wasOversoldRecently and inBuyZone and validTime and
+     touchCount >= minTouches
+
+if crossedWithoutVolume and not potentialFailure
+    potentialFailure := true
+    failureBar       := barIdx15
+
+justCrossedBelow = not na(currentTrendValue) and
+     not na(prevTrendValue) and
+     rsi15 < currentTrendValue and rsi15[1] >= prevTrendValue
+
+failedBreakoutShort = useShortSignals
+     and potentialFailure
+     and justCrossedBelow
+     and (barIdx15 - failureBar) <= failureWindow
+     and histFalling15
+     and shortSignalCount < maxShortSignals
+
+if failedBreakoutShort
+    potentialFailure   := false
+    shortSignalCount   := shortSignalCount + 1
+
+if potentialFailure and (barIdx15 - failureBar) > failureWindow
+    potentialFailure := false
+
+// === RESET ON NEW HIGH ===
+if not na(pivotHigh15) and pivotHigh15 >= startLevel and
+     trendlineActive
+    pivotBar = barIdx15 - pivotStrength
+    trendAtPivot = calcTrendlineValue(pivotBar)
+    if na(trendAtPivot) or pivotHigh15 > trendAtPivot
+        anchor1_rsi      := pivotHigh15
+        anchor1_bar      := pivotBar
+        anchor2_rsi      := na
+        anchor2_bar      := na
+        touchCount       := 1
+        trendlineActive  := false
+        signalCount      := 0
+        shortSignalCount := 0
+        barsSinceCross   := 100
+        potentialFailure := false
+
+// === VISUALIZATION ===
+hlineUpper = hline(70, "Overbought",
+     color=color.new(#f57c00, 0), linestyle=hline.style_dashed)
+hlineLower = hline(30, "Oversold",
+     color=color.new(#4caf50, 0), linestyle=hline.style_dashed)
+fill(hlineUpper, hlineLower, color=color.new(#009688, 92))
+hline(50, "Midline",
+     color=color.new(#787b86, 50), linestyle=hline.style_dotted)
+
+rsiPlot = plot(rsi15, "RSI (15m)", color=color.new(#009688, 0),
+     linewidth=1)
+plot(rsiMa15, "RSI MA (15m)", color=color.new(#80CBC4, 0),
+     linewidth=1)
+plot(currentTrendValue, "Trendline",
+     color=color.new(#757575, 0), linewidth=2,
+     style=plot.style_line)
+
+obLine = plot(70, "OB Line",
+     color=color.new(#000000, 100), display=display.none)
+osLine = plot(30, "OS Line",
+     color=color.new(#000000, 100), display=display.none)
+
+fill(rsiPlot, obLine,
+     color=rsi15 > 70 ? color.new(#4caf50, 80) : na)
+fill(rsiPlot, osLine,
+     color=rsi15 < 30 ? color.new(#ff5252, 80) : na)
+
+// === SIGNAL MARKERS ===
+plotshape(breakoutCondition, "BUY Signal",
+     shape.triangleup, location.bottom,
+     color=color.green, size=size.tiny)
+plotshape(failedBreakoutShort, "SELL Signal",
+     shape.triangledown, location.top,
+     color=color.red, size=size.tiny)
+
+// === ALERTS ===
+buyMsg = "BUY " + syminfo.ticker +
+     " | RSI: " + str.tostring(rsi15, "#.#") +
+     " | Touches: " + str.tostring(touchCount)
+shortMsg = "SELL " + syminfo.ticker +
+     " | RSI: " + str.tostring(rsi15, "#.#") +
+     " | Touches: " + str.tostring(touchCount)
+
+if breakoutCondition and not buyAlertSent
+    alert(buyMsg, alert.freq_once_per_bar)
+    buyAlertSent := true
+if failedBreakoutShort and not shortAlertSent
+    alert(shortMsg, alert.freq_once_per_bar)
+    shortAlertSent := true
+
+alertcondition(breakoutCondition, "BUY Signal",
+     "RSI Trendline Scalp — BUY")
+alertcondition(failedBreakoutShort, "SELL Signal",
+     "RSI Trendline Scalp — SELL (Failed Breakout)")
+
+// === INFO TABLE ===
+var table infoTable = table.new(position.top_right, 2, 9,
+     bgcolor=color.new(color.black, 80))
+if barstate.islast
+    table.cell(infoTable, 0, 0, "RSI (15m):",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 0,
+         str.tostring(rsi15, "#.#"),
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 0, 1, "Touches:",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 1,
+         str.tostring(touchCount),
+         text_color=touchCount >= minTouches ?
+              color.green : color.orange,
+         text_size=size.small)
+    table.cell(infoTable, 0, 2, "Bars:",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 2,
+         str.tostring(barsElapsed),
+         text_color=validTime ? color.green : color.orange,
+         text_size=size.small)
+    table.cell(infoTable, 0, 3, "Recent OS:",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 3,
+         wasOversoldRecently ? "Yes" : "No",
+         text_color=wasOversoldRecently ?
+              color.green : color.orange,
+         text_size=size.small)
+    table.cell(infoTable, 0, 4, "In Zone:",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 4,
+         inBuyZone ? "Yes" : "No",
+         text_color=inBuyZone ? color.green : color.orange,
+         text_size=size.small)
+    table.cell(infoTable, 0, 5, "MACD:",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 5,
+         histRising15 ? "Rising" : "Falling",
+         text_color=histRising15 ? color.green : color.orange,
+         text_size=size.small)
+    table.cell(infoTable, 0, 6, "Volume:",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 6,
+         volAbove15 ? "Above Avg" : "Below Avg",
+         text_color=volAbove15 ? color.green : color.orange,
+         text_size=size.small)
+    table.cell(infoTable, 0, 7, "Trendline:",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 7,
+         trendlineActive ? str.tostring(
+              currentTrendValue, "#.#") : "N/A",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 0, 8, "Signals:",
+         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 8,
+         str.tostring(signalCount) + "B / " +
+         str.tostring(shortSignalCount) + "S",
+         text_color=color.white, text_size=size.small)
