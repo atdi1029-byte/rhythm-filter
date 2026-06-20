@@ -1,0 +1,683 @@
+//@version=6
+indicator("DSS Breathing Scalp", overlay=false,
+     max_bars_back=500)
+
+// =========================================================
+// Single-asset breathing score from DSS across 9 timeframes
+// Instead of 40 coins' RSI → one asset's DSS on 9 TFs
+// Score tells you if the asset is leaning BUY or SELL
+// across its entire timeframe stack
+// =========================================================
+
+// === DSS SETTINGS ===
+grpDSS    = "DSS Bressert"
+dssLength = input.int(13, "Stochastic Period",
+     group=grpDSS, minval=2, maxval=50)
+dssSmooth = input.int(8,  "EMA Smoothing",
+     group=grpDSS, minval=2, maxval=21)
+obLevel   = input.float(80, "Overbought",
+     group=grpDSS, minval=60, maxval=95, step=1)
+osLevel   = input.float(20, "Oversold",
+     group=grpDSS, minval=5,  maxval=40, step=1)
+
+// === BREATHING SETTINGS ===
+grpBreath = "Breathing Score"
+smoothLen = input.int(3, "Score Smoothing (EMA)",
+     group=grpBreath, minval=1, maxval=15)
+buyThresh = input.float(3.0, "Buy Phase Threshold",
+     group=grpBreath, minval=1, maxval=8, step=0.5,
+     tooltip="Score above this = asset in buy phase")
+sellThresh = input.float(-3.0, "Sell Phase Threshold",
+     group=grpBreath, minval=-8, maxval=-1, step=0.5,
+     tooltip="Score below this = asset in sell phase")
+
+// === SIGNAL SETTINGS ===
+grpSig = "Signals"
+sigMode = input.string("Cross Threshold",
+     "Signal Mode", group=grpSig,
+     options=["Cross Threshold",
+     "Cross Zero", "Extreme Reversal"])
+extremeLevel = input.float(6.0,
+     "Extreme Level (for reversal mode)",
+     group=grpSig, minval=3, maxval=9, step=0.5)
+cooldownBars = input.int(6,
+     "Cooldown (bars between signals)",
+     group=grpSig, minval=1, maxval=30)
+
+// === WEIGHTED SCORING ===
+grpWt = "Timeframe Weights"
+useWeights = input.bool(true,
+     "Weight Higher TFs More",
+     group=grpWt,
+     tooltip="Higher TFs get more weight in score. " +
+     "Off = equal weight (each TF = 1 point).")
+wt5m  = input.float(0.0, "5m Weight",
+     group=grpWt, minval=0, maxval=3, step=0.25)
+wt15m = input.float(0.5, "15m Weight",
+     group=grpWt, minval=0, maxval=3, step=0.25)
+wt30m = input.float(0.75, "30m Weight",
+     group=grpWt, minval=0, maxval=3, step=0.25)
+wt45m = input.float(1.0, "45m Weight",
+     group=grpWt, minval=0, maxval=3, step=0.25)
+wt1h  = input.float(1.5, "1H Weight",
+     group=grpWt, minval=0, maxval=3, step=0.25)
+wt2h  = input.float(2.0, "2H Weight",
+     group=grpWt, minval=0, maxval=3, step=0.25)
+wt4h  = input.float(2.5, "4H Weight",
+     group=grpWt, minval=0, maxval=3, step=0.25)
+wt6h  = input.float(2.75, "6H Weight",
+     group=grpWt, minval=0, maxval=3, step=0.25)
+wt1d  = input.float(3.0, "Daily Weight",
+     group=grpWt, minval=0, maxval=3, step=0.25)
+
+
+// === DSS BRESSERT FUNCTION ===
+dss_bressert(float src, int stochLen, int emaLen) =>
+    hh      = ta.highest(src, stochLen)
+    ll      = ta.lowest(src,  stochLen)
+    raw1    = hh != ll
+         ? (src - ll) / (hh - ll) * 100 : 50.0
+    smooth1 = ta.ema(raw1, emaLen)
+    hh2     = ta.highest(smooth1, stochLen)
+    ll2     = ta.lowest(smooth1,  stochLen)
+    raw2    = hh2 != ll2
+         ? (smooth1 - ll2) / (hh2 - ll2) * 100 : 50.0
+    dssLine = ta.ema(raw2, emaLen)
+    sigLine = ta.ema(dssLine, emaLen)
+    [dssLine, sigLine]
+
+
+// === FETCH DSS FROM 9 TIMEFRAMES ===
+[dss5m, sig5m] = request.security(
+     syminfo.tickerid, "5",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_off)
+
+[dss15m, sig15m] = request.security(
+     syminfo.tickerid, "15",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_off)
+
+[dss30m, sig30m] = request.security(
+     syminfo.tickerid, "30",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_off)
+
+[dss45m, sig45m] = request.security(
+     syminfo.tickerid, "45",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_off)
+
+[dss1h, sig1h] = request.security(
+     syminfo.tickerid, "60",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_off)
+
+[dss2h, sig2h] = request.security(
+     syminfo.tickerid, "120",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_off)
+
+[dss4h, sig4h] = request.security(
+     syminfo.tickerid, "240",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_off)
+
+[dss6h, sig6h] = request.security(
+     syminfo.tickerid, "360",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_off)
+
+[dss1d, sig1d] = request.security(
+     syminfo.tickerid, "D",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_off)
+
+
+// === SCORE EACH TIMEFRAME ===
+// +weight = DSS in oversold (buy territory)
+// -weight = DSS in overbought (sell territory)
+// Gradient scoring: deeper into zone = stronger score
+scoreIt(float dssVal, float w) =>
+    weight = useWeights ? w : 1.0
+    if dssVal <= osLevel
+        // Scale: at osLevel = +0.5w, at 0 = +1.0w
+        depth = (osLevel - dssVal) / osLevel
+        weight * (0.5 + depth * 0.5)
+    else if dssVal >= obLevel
+        depth = (dssVal - obLevel) / (100 - obLevel)
+        -weight * (0.5 + depth * 0.5)
+    else
+        // Neutral zone: mild lean based on direction
+        // DSS below 50 = slight positive, above 50 = slight negative
+        lean = (50 - dssVal) / 50  // -1 to +1
+        weight * lean * 0.15
+
+score5m  = scoreIt(dss5m, wt5m)
+score15m = scoreIt(dss15m, wt15m)
+score30m = scoreIt(dss30m, wt30m)
+score45m = scoreIt(dss45m, wt45m)
+score1h  = scoreIt(dss1h, wt1h)
+score2h  = scoreIt(dss2h, wt2h)
+score4h  = scoreIt(dss4h, wt4h)
+score6h  = scoreIt(dss6h, wt6h)
+score1d  = scoreIt(dss1d, wt1d)
+
+rawScore = score5m + score15m + score30m +
+     score45m + score1h + score2h +
+     score4h + score6h + score1d
+
+// Normalize to roughly -10 to +10 scale
+totalWeight = useWeights
+     ? (wt5m + wt15m + wt30m + wt45m +
+     wt1h + wt2h + wt4h + wt6h + wt1d)
+     : 9.0
+breathScore = ta.ema(rawScore / totalWeight * 10,
+     smoothLen)
+
+
+// === ZONE COUNTS (for table) ===
+buyCount = (dss5m <= osLevel ? 1 : 0)
+     + (dss15m <= osLevel ? 1 : 0)
+     + (dss30m <= osLevel ? 1 : 0)
+     + (dss45m <= osLevel ? 1 : 0)
+     + (dss1h <= osLevel ? 1 : 0)
+     + (dss2h <= osLevel ? 1 : 0)
+     + (dss4h <= osLevel ? 1 : 0)
+     + (dss6h <= osLevel ? 1 : 0)
+     + (dss1d <= osLevel ? 1 : 0)
+
+sellCount = (dss5m >= obLevel ? 1 : 0)
+     + (dss15m >= obLevel ? 1 : 0)
+     + (dss30m >= obLevel ? 1 : 0)
+     + (dss45m >= obLevel ? 1 : 0)
+     + (dss1h >= obLevel ? 1 : 0)
+     + (dss2h >= obLevel ? 1 : 0)
+     + (dss4h >= obLevel ? 1 : 0)
+     + (dss6h >= obLevel ? 1 : 0)
+     + (dss1d >= obLevel ? 1 : 0)
+
+// Direction consensus (DSS vs signal)
+bullCount = (dss5m > sig5m ? 1 : 0)
+     + (dss15m > sig15m ? 1 : 0)
+     + (dss30m > sig30m ? 1 : 0)
+     + (dss45m > sig45m ? 1 : 0)
+     + (dss1h > sig1h ? 1 : 0)
+     + (dss2h > sig2h ? 1 : 0)
+     + (dss4h > sig4h ? 1 : 0)
+     + (dss6h > sig6h ? 1 : 0)
+     + (dss1d > sig1d ? 1 : 0)
+
+
+// === PHASE DETECTION ===
+isBuyPhase  = breathScore >= buyThresh
+isSellPhase = breathScore <= sellThresh
+isNeutral   = not isBuyPhase and not isSellPhase
+
+
+// === SIGNALS ===
+var int lastSigBar = 0
+cooledOff = bar_index - lastSigBar >= cooldownBars
+
+// Cross Threshold mode
+crossBuy_thresh  = breathScore >= buyThresh
+     and breathScore[1] < buyThresh
+crossSell_thresh = breathScore <= sellThresh
+     and breathScore[1] > sellThresh
+
+// Cross Zero mode
+crossBuy_zero  = breathScore >= 0
+     and breathScore[1] < 0
+crossSell_zero = breathScore <= 0
+     and breathScore[1] > 0
+
+// Extreme Reversal mode: score was extreme,
+// now pulling back
+crossBuy_extreme  = breathScore[1] <= -extremeLevel
+     and breathScore > breathScore[1]
+     and breathScore > breathScore[2]
+crossSell_extreme = breathScore[1] >= extremeLevel
+     and breathScore < breathScore[1]
+     and breathScore < breathScore[2]
+
+buySignal = barstate.isconfirmed and cooledOff
+     and (sigMode == "Cross Threshold"
+     ? crossBuy_thresh
+     : sigMode == "Cross Zero"
+     ? crossBuy_zero
+     : crossBuy_extreme)
+
+sellSignal = barstate.isconfirmed and cooledOff
+     and (sigMode == "Cross Threshold"
+     ? crossSell_thresh
+     : sigMode == "Cross Zero"
+     ? crossSell_zero
+     : crossSell_extreme)
+
+if buySignal or sellSignal
+    lastSigBar := bar_index
+
+
+// === MOMENTUM (score acceleration) ===
+scoreDelta = breathScore - breathScore[1]
+momentum = ta.ema(scoreDelta, 5)
+
+
+// === PLOT ===
+scoreColor = breathScore > buyThresh
+     ? color.new(#00E676, 0)
+     : breathScore > 0
+     ? color.new(#81C784, 0)
+     : breathScore < sellThresh
+     ? color.new(#FF1744, 0)
+     : breathScore < 0
+     ? color.new(#EF9A9A, 0)
+     : color.new(#FFD600, 0)
+
+plot(breathScore, "Breathing Score",
+     color=scoreColor, linewidth=3,
+     style=plot.style_area)
+
+plot(momentum * 10, "Momentum",
+     color=color.new(#80CBC4, 40),
+     linewidth=1)
+
+// Reference lines
+hline(buyThresh, "Buy Phase",
+     color=color.new(#00E676, 60),
+     linestyle=hline.style_dashed)
+hline(0, "Zero",
+     color=color.new(#666666, 50),
+     linestyle=hline.style_dotted)
+hline(sellThresh, "Sell Phase",
+     color=color.new(#FF1744, 60),
+     linestyle=hline.style_dashed)
+
+// Phase background
+bgcolor(isBuyPhase
+     ? color.new(#00E676, 92)
+     : isSellPhase
+     ? color.new(#FF1744, 92) : na,
+     title="Phase BG")
+
+// Signal markers
+plotshape(buySignal, "BUY",
+     shape.triangleup, location.bottom,
+     color=color.new(#00E676, 0), size=size.small)
+plotshape(sellSignal, "SELL",
+     shape.triangledown, location.top,
+     color=color.new(#FF1744, 0), size=size.small)
+
+
+// === ALERTS ===
+if buySignal
+    alert("DSS Breath BUY"
+         + " | Score=" + str.tostring(breathScore, "#.#")
+         + " | OS TFs=" + str.tostring(buyCount) + "/9",
+         alert.freq_once_per_bar)
+if sellSignal
+    alert("DSS Breath SELL"
+         + " | Score=" + str.tostring(breathScore, "#.#")
+         + " | OB TFs=" + str.tostring(sellCount) + "/9",
+         alert.freq_once_per_bar)
+
+alertcondition(buySignal, "BUY",
+     "DSS Breathing Scalp BUY")
+alertcondition(sellSignal, "SELL",
+     "DSS Breathing Scalp SELL")
+
+
+// === ZONE / DIRECTION HELPERS ===
+zoneLabel(float val) =>
+    val >= obLevel ? "OB"
+     : val <= osLevel ? "OS"
+     : val > 65 ? "HIGH"
+     : val < 35 ? "LOW" : "--"
+
+zoneColor(float val) =>
+    val >= obLevel ? color.new(#FF1744, 0)
+     : val <= osLevel ? color.new(#00E676, 0)
+     : color.new(#888888, 0)
+
+zoneBg(float val) =>
+    val >= obLevel ? color.new(#FF1744, 60)
+     : val > 65  ? color.new(#FF9800, 75)
+     : val <= osLevel ? color.new(#00E676, 60)
+     : val < 35  ? color.new(#00BCD4, 75)
+     : color.new(#333333, 50)
+
+dirArrow(float d, float s) =>
+    d > s ? " ▲" : " ▼"
+
+dirColor(float d, float s) =>
+    d > s ? color.new(#00E676, 0)
+     : color.new(#FF1744, 0)
+
+
+// === INFO TABLE ===
+var table t = table.new(position.top_right, 4, 16,
+     bgcolor=color.new(#1A1A2E, 0),
+     border_color=color.new(#444444, 0),
+     border_width=1)
+
+if barstate.islast
+    // Header
+    table.cell(t, 0, 0, "TF",
+         text_color=color.new(#00BCD4, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 1, 0, "DSS",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 2, 0, "Dir",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 3, 0, "Zone",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+
+    // 5m
+    table.cell(t, 0, 1, " 5m ",
+         text_color=color.new(#009688, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 1,
+         " " + str.tostring(dss5m, "#.#") + " ",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss5m))
+    table.cell(t, 2, 1, dirArrow(dss5m, sig5m),
+         text_color=dirColor(dss5m, sig5m),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 3, 1, zoneLabel(dss5m),
+         text_color=zoneColor(dss5m),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // 15m
+    table.cell(t, 0, 2, " 15m ",
+         text_color=color.new(#80CBC4, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 2,
+         " " + str.tostring(dss15m, "#.#") + " ",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss15m))
+    table.cell(t, 2, 2, dirArrow(dss15m, sig15m),
+         text_color=dirColor(dss15m, sig15m),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 3, 2, zoneLabel(dss15m),
+         text_color=zoneColor(dss15m),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // 30m
+    table.cell(t, 0, 3, " 30m ",
+         text_color=color.new(#757575, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 3,
+         " " + str.tostring(dss30m, "#.#") + " ",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss30m))
+    table.cell(t, 2, 3, dirArrow(dss30m, sig30m),
+         text_color=dirColor(dss30m, sig30m),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 3, 3, zoneLabel(dss30m),
+         text_color=zoneColor(dss30m),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // 45m
+    table.cell(t, 0, 4, " 45m ",
+         text_color=color.new(#D500F9, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 4,
+         " " + str.tostring(dss45m, "#.#") + " ",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss45m))
+    table.cell(t, 2, 4, dirArrow(dss45m, sig45m),
+         text_color=dirColor(dss45m, sig45m),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 3, 4, zoneLabel(dss45m),
+         text_color=zoneColor(dss45m),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // 1H
+    table.cell(t, 0, 5, " 1H ",
+         text_color=color.new(#651FFF, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 5,
+         " " + str.tostring(dss1h, "#.#") + " ",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss1h))
+    table.cell(t, 2, 5, dirArrow(dss1h, sig1h),
+         text_color=dirColor(dss1h, sig1h),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 3, 5, zoneLabel(dss1h),
+         text_color=zoneColor(dss1h),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // 2H
+    table.cell(t, 0, 6, " 2H ",
+         text_color=color.new(#2979FF, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 6,
+         " " + str.tostring(dss2h, "#.#") + " ",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss2h))
+    table.cell(t, 2, 6, dirArrow(dss2h, sig2h),
+         text_color=dirColor(dss2h, sig2h),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 3, 6, zoneLabel(dss2h),
+         text_color=zoneColor(dss2h),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // 4H
+    table.cell(t, 0, 7, " 4H ",
+         text_color=color.new(#00E5FF, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 7,
+         " " + str.tostring(dss4h, "#.#") + " ",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss4h))
+    table.cell(t, 2, 7, dirArrow(dss4h, sig4h),
+         text_color=dirColor(dss4h, sig4h),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 3, 7, zoneLabel(dss4h),
+         text_color=zoneColor(dss4h),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // 6H
+    table.cell(t, 0, 8, " 6H ",
+         text_color=color.new(#00E676, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 8,
+         " " + str.tostring(dss6h, "#.#") + " ",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss6h))
+    table.cell(t, 2, 8, dirArrow(dss6h, sig6h),
+         text_color=dirColor(dss6h, sig6h),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 3, 8, zoneLabel(dss6h),
+         text_color=zoneColor(dss6h),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // Daily
+    table.cell(t, 0, 9, " D ",
+         text_color=color.new(#FFD740, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 9,
+         " " + str.tostring(dss1d, "#.#") + " ",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss1d))
+    table.cell(t, 2, 9, dirArrow(dss1d, sig1d),
+         text_color=dirColor(dss1d, sig1d),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 3, 9, zoneLabel(dss1d),
+         text_color=zoneColor(dss1d),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // Separator
+    table.cell(t, 0, 10, "",
+         bgcolor=color.new(#444444, 0),
+         text_size=size.tiny)
+    table.cell(t, 1, 10, "",
+         bgcolor=color.new(#444444, 0),
+         text_size=size.tiny)
+    table.cell(t, 2, 10, "",
+         bgcolor=color.new(#444444, 0),
+         text_size=size.tiny)
+    table.cell(t, 3, 10, "",
+         bgcolor=color.new(#444444, 0),
+         text_size=size.tiny)
+
+    // Breathing Score
+    table.cell(t, 0, 11, "SCORE",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 1, 11,
+         str.tostring(breathScore, "#.##"),
+         text_color=scoreColor,
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 2, 11,
+         momentum > 0 ? "▲" : "▼",
+         text_color=momentum > 0
+         ? color.new(#00E676, 0)
+         : color.new(#FF1744, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 3, 11, "",
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+
+    // Phase
+    phase = isBuyPhase ? "INHALE"
+         : isSellPhase ? "EXHALE"
+         : "NEUTRAL"
+    phCol = isBuyPhase ? color.new(#00E676, 0)
+         : isSellPhase ? color.new(#FF1744, 0)
+         : color.new(#FFD600, 0)
+    table.cell(t, 0, 12, "PHASE",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 1, 12, phase,
+         text_color=phCol,
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 2, 12, "",
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 3, 12, "",
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+
+    // OS / OB count
+    table.cell(t, 0, 13, "OS TFs",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 1, 13,
+         str.tostring(buyCount) + "/9",
+         text_color=color.new(#00E676, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 2, 13, "OB TFs",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 3, 13,
+         str.tostring(sellCount) + "/9",
+         text_color=color.new(#FF1744, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+
+    // Direction consensus
+    table.cell(t, 0, 14, "BULLS",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 1, 14,
+         str.tostring(bullCount) + "/9 ▲",
+         text_color=bullCount >= 7
+         ? color.new(#00E676, 0)
+         : bullCount >= 5
+         ? color.new(#00E676, 40)
+         : bullCount <= 2
+         ? color.new(#FF1744, 0)
+         : color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 2, 14, "",
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 3, 14, "",
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+
+    // Signal status
+    sigStatus = buySignal ? "BUY"
+         : sellSignal ? "SELL"
+         : "--"
+    sigCol = buySignal ? color.new(#00E676, 0)
+         : sellSignal ? color.new(#FF1744, 0)
+         : color.new(#888888, 0)
+    table.cell(t, 0, 15, "SIG",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 1, 15, sigStatus,
+         text_color=sigCol,
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 2, 15, sigMode,
+         text_color=color.new(#888888, 0),
+         text_size=size.tiny,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 3, 15, "",
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
