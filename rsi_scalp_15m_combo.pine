@@ -1,0 +1,441 @@
+//@version=6
+indicator("RSI Trendline Scalp 15m (Combined)", overlay=false)
+
+// === INPUTS ===
+rsiLength        = input(14, "RSI Length")
+rsiMaLength      = input(14, "RSI MA Length")
+pivotStrength    = input(3, "Pivot Strength")
+touchSensitivity = input(4.0, "Touch Sensitivity")
+minTouches       = input(2, "Minimum Touches")
+minBars          = input(15, "Minimum Bars for Setup")
+maxSignals       = input(2, "Max Signals Per Trendline")
+lookbackBars     = input(20, "OB/OS Lookback Bars")
+
+// Buy side
+buyStartLevel    = input(60, "Buy: RSI Start Level",
+     group="Buy Side")
+oversoldLevel    = input(30, "Buy: Oversold Level",
+     group="Buy Side")
+maxBreakoutRsi   = input(50, "Buy: Max RSI for Breakout",
+     group="Buy Side")
+useFailedShort   = input(true, "Buy: Enable Failed Breakout Shorts",
+     group="Buy Side")
+
+// Sell side
+sellStartLevel   = input(40, "Sell: RSI Start Level",
+     group="Sell Side")
+overboughtLevel  = input(70, "Sell: Overbought Level",
+     group="Sell Side")
+minBreakoutRsi   = input(50, "Sell: Min RSI for Breakout",
+     group="Sell Side")
+useFailedBuy     = input(true, "Sell: Enable Failed Breakout Buys",
+     group="Sell Side")
+
+// Shared
+failureWindow    = input(15, "Failure Window (bars)")
+maxFailedSignals = input(2, "Max Failed Breakout Signals")
+
+// === MACD FILTER ===
+useMacdFilter    = input(true, "Use MACD Confirmation")
+macdFast         = input(12, "MACD Fast Length")
+macdSlow         = input(26, "MACD Slow Length")
+macdSignalLen    = input(9, "MACD Signal Length")
+
+// === VOLUME FILTER ===
+useVolumeFilter  = input(true, "Use Volume Confirmation")
+volumeLength     = input(20, "Volume MA Length")
+volumeThreshold  = input.float(0.7, "Volume Threshold (x Average)",
+     minval=0.5, maxval=3.0, step=0.1)
+
+// ============================================================
+// 15m computation — single request.security call
+// ============================================================
+
+calc15m() =>
+    _rsi   = ta.rsi(close, rsiLength)
+    _rsiMa = ta.sma(_rsi, rsiMaLength)
+
+    [_macdLine, _sigLine, _hist] = ta.macd(close, macdFast,
+         macdSlow, macdSignalLen)
+    _histRising  = _hist > _hist[1] and _hist[1] > _hist[2]
+    _histFalling = _hist < _hist[1] and _hist[1] < _hist[2]
+
+    _volMA    = ta.sma(volume, volumeLength)
+    _volAbove = volume >= _volMA * volumeThreshold
+
+    _pivotHigh  = ta.pivothigh(_rsi, pivotStrength, pivotStrength)
+    _pivotLow   = ta.pivotlow(_rsi, pivotStrength, pivotStrength)
+    _lowestRsi  = ta.lowest(_rsi, lookbackBars)
+    _highestRsi = ta.highest(_rsi, lookbackBars)
+
+    [_rsi, _rsiMa, _histRising, _histFalling, _volAbove,
+     _pivotHigh, _pivotLow, _lowestRsi, _highestRsi, bar_index]
+
+[rsi15, rsiMa15, histRising15, histFalling15, volAbove15,
+ pivotHigh15, pivotLow15, lowestRsi15, highestRsi15,
+ barIdx15] = request.security(
+     syminfo.tickerid, "15", calc15m(),
+     lookahead=barmerge.lookahead_off)
+
+// Derived
+macdBuyOk  = not useMacdFilter or histRising15
+macdSellOk = not useMacdFilter or histFalling15
+volOk      = not useVolumeFilter or volAbove15
+wasOversold    = lowestRsi15 < oversoldLevel
+wasOverbought  = highestRsi15 > overboughtLevel
+
+// ============================================================
+// BUY SIDE — descending trendline on pivot highs
+// ============================================================
+
+var float bA1_rsi = na,  var int bA1_bar = na
+var float bA2_rsi = na,  var int bA2_bar = na
+var int   bTouches = 0,  var bool bActive = false
+var int   bSigCount = 0, var int  bCross = 100
+var bool  bPotFail = false, var int bFailBar = 0
+var int   bFailCount = 0
+
+calcBuyTL(bar) =>
+    if na(bA1_bar) or na(bA2_bar) or bA1_bar == bA2_bar
+        na
+    else
+        slope = (bA2_rsi - bA1_rsi) / (bA2_bar - bA1_bar)
+        bA1_rsi + slope * (bar - bA1_bar)
+
+// Anchor 1: pivot high >= startLevel
+if not na(pivotHigh15) and pivotHigh15 >= buyStartLevel
+    if na(bA1_rsi) or pivotHigh15 > bA1_rsi
+        pBar = barIdx15 - pivotStrength
+        tAtP = bActive ? calcBuyTL(pBar) : na
+        if not bActive or na(tAtP) or pivotHigh15 > tAtP
+            bA1_rsi := pivotHigh15, bA1_bar := pBar
+            bA2_rsi := na, bA2_bar := na
+            bTouches := 1, bActive := false
+            bSigCount := 0, bFailCount := 0
+            bCross := 100, bPotFail := false
+
+// Anchor 2: lower pivot high
+if not na(bA1_bar) and na(bA2_bar) and
+     not na(pivotHigh15) and pivotHigh15 < buyStartLevel
+    if pivotHigh15 < bA1_rsi
+        bA2_rsi := pivotHigh15
+        bA2_bar := barIdx15 - pivotStrength
+        bActive := true, bTouches := 2
+
+// Count touches
+if bActive and not na(pivotHigh15) and
+     pivotHigh15 < buyStartLevel
+    pBar = barIdx15 - pivotStrength
+    exp = calcBuyTL(pBar)
+    if not na(exp)
+        if pivotHigh15 <= exp + touchSensitivity and
+             pivotHigh15 >= exp - touchSensitivity
+            bTouches := bTouches + 1
+        else if pivotHigh15 < bA2_rsi
+            bA2_rsi := pivotHigh15, bA2_bar := pBar
+            bTouches := bTouches + 1
+
+// Trendline values
+bTLCur  = bActive ? calcBuyTL(barIdx15) : na
+bTLPrev = bActive ? calcBuyTL(barIdx15 - 1) : na
+bBars   = bActive and not na(bA1_bar) ? barIdx15 - bA1_bar : 0
+bValid  = bBars >= minBars
+
+// Cross detection
+bJustCrossed = not na(bTLCur) and not na(bTLPrev) and
+     rsi15 > bTLCur and rsi15[1] <= bTLPrev
+if bJustCrossed
+    bCross := 0
+else
+    bCross := bCross + 1
+
+bCrossedAbove = bCross <= 5 and rsi15 > bTLCur
+bInZone = rsi15 >= oversoldLevel - 2 and rsi15 < maxBreakoutRsi
+
+// BUY signal
+buySignal = bActive and bCrossedAbove and bValid
+     and bTouches >= minTouches and wasOversold
+     and bInZone and bSigCount < maxSignals
+     and macdBuyOk and volOk
+
+if buySignal
+    bSigCount := bSigCount + 1
+    bCross := 100, bPotFail := false
+
+// Failed breakout short
+bCrossNoVol = bJustCrossed and not volAbove15 and
+     wasOversold and bInZone and bValid and
+     bTouches >= minTouches
+if bCrossNoVol and not bPotFail
+    bPotFail := true, bFailBar := barIdx15
+
+bJustBelow = not na(bTLCur) and not na(bTLPrev) and
+     rsi15 < bTLCur and rsi15[1] >= bTLPrev
+
+failedShort = useFailedShort and bPotFail and bJustBelow
+     and (barIdx15 - bFailBar) <= failureWindow
+     and histFalling15 and bFailCount < maxFailedSignals
+
+if failedShort
+    bPotFail := false, bFailCount := bFailCount + 1
+if bPotFail and (barIdx15 - bFailBar) > failureWindow
+    bPotFail := false
+
+// Reset on new high
+if not na(pivotHigh15) and pivotHigh15 >= buyStartLevel and
+     bActive
+    pBar = barIdx15 - pivotStrength
+    tAtP = calcBuyTL(pBar)
+    if na(tAtP) or pivotHigh15 > tAtP
+        bA1_rsi := pivotHigh15, bA1_bar := pBar
+        bA2_rsi := na, bA2_bar := na
+        bTouches := 1, bActive := false
+        bSigCount := 0, bFailCount := 0
+        bCross := 100, bPotFail := false
+
+// ============================================================
+// SELL SIDE — ascending trendline on pivot lows
+// ============================================================
+
+var float sA1_rsi = na,  var int sA1_bar = na
+var float sA2_rsi = na,  var int sA2_bar = na
+var int   sTouches = 0,  var bool sActive = false
+var int   sSigCount = 0, var int  sCross = 100
+var bool  sPotFail = false, var int sFailBar = 0
+var int   sFailCount = 0
+
+calcSellTL(bar) =>
+    if na(sA1_bar) or na(sA2_bar) or sA1_bar == sA2_bar
+        na
+    else
+        slope = (sA2_rsi - sA1_rsi) / (sA2_bar - sA1_bar)
+        sA1_rsi + slope * (bar - sA1_bar)
+
+// Anchor 1: pivot low <= startLevel
+if not na(pivotLow15) and pivotLow15 <= sellStartLevel
+    if na(sA1_rsi) or pivotLow15 < sA1_rsi
+        pBar = barIdx15 - pivotStrength
+        tAtP = sActive ? calcSellTL(pBar) : na
+        if not sActive or na(tAtP) or pivotLow15 < tAtP
+            sA1_rsi := pivotLow15, sA1_bar := pBar
+            sA2_rsi := na, sA2_bar := na
+            sTouches := 1, sActive := false
+            sSigCount := 0, sFailCount := 0
+            sCross := 100, sPotFail := false
+
+// Anchor 2: higher pivot low
+if not na(sA1_bar) and na(sA2_bar) and
+     not na(pivotLow15) and pivotLow15 > sellStartLevel
+    if pivotLow15 > sA1_rsi
+        sA2_rsi := pivotLow15
+        sA2_bar := barIdx15 - pivotStrength
+        sActive := true, sTouches := 2
+
+// Count touches
+if sActive and not na(pivotLow15) and
+     pivotLow15 > sellStartLevel
+    pBar = barIdx15 - pivotStrength
+    exp = calcSellTL(pBar)
+    if not na(exp)
+        if pivotLow15 >= exp - touchSensitivity and
+             pivotLow15 <= exp + touchSensitivity
+            sTouches := sTouches + 1
+        else if pivotLow15 > sA2_rsi
+            sA2_rsi := pivotLow15, sA2_bar := pBar
+            sTouches := sTouches + 1
+
+// Trendline values
+sTLCur  = sActive ? calcSellTL(barIdx15) : na
+sTLPrev = sActive ? calcSellTL(barIdx15 - 1) : na
+sBars   = sActive and not na(sA1_bar) ? barIdx15 - sA1_bar : 0
+sValid  = sBars >= minBars
+
+// Cross detection: RSI breaks below ascending trendline
+sJustCrossed = not na(sTLCur) and not na(sTLPrev) and
+     rsi15 < sTLCur and rsi15[1] >= sTLPrev
+if sJustCrossed
+    sCross := 0
+else
+    sCross := sCross + 1
+
+sCrossedBelow = sCross <= 5 and rsi15 < sTLCur
+sInZone = rsi15 <= overboughtLevel + 2 and rsi15 > minBreakoutRsi
+
+// SELL signal
+sellSignal = sActive and sCrossedBelow and sValid
+     and sTouches >= minTouches and wasOverbought
+     and sInZone and sSigCount < maxSignals
+     and macdSellOk and volOk
+
+if sellSignal
+    sSigCount := sSigCount + 1
+    sCross := 100, sPotFail := false
+
+// Failed breakout buy
+sCrossNoVol = sJustCrossed and not volAbove15 and
+     wasOverbought and sInZone and sValid and
+     sTouches >= minTouches
+if sCrossNoVol and not sPotFail
+    sPotFail := true, sFailBar := barIdx15
+
+sJustAbove = not na(sTLCur) and not na(sTLPrev) and
+     rsi15 > sTLCur and rsi15[1] <= sTLPrev
+
+failedBuy = useFailedBuy and sPotFail and sJustAbove
+     and (barIdx15 - sFailBar) <= failureWindow
+     and histRising15 and sFailCount < maxFailedSignals
+
+if failedBuy
+    sPotFail := false, sFailCount := sFailCount + 1
+if sPotFail and (barIdx15 - sFailBar) > failureWindow
+    sPotFail := false
+
+// Reset on new low
+if not na(pivotLow15) and pivotLow15 <= sellStartLevel and
+     sActive
+    pBar = barIdx15 - pivotStrength
+    tAtP = calcSellTL(pBar)
+    if na(tAtP) or pivotLow15 < tAtP
+        sA1_rsi := pivotLow15, sA1_bar := pBar
+        sA2_rsi := na, sA2_bar := na
+        sTouches := 1, sActive := false
+        sSigCount := 0, sFailCount := 0
+        sCross := 100, sPotFail := false
+
+// ============================================================
+// ALERTS (dedup per 15m bar)
+// ============================================================
+
+var bool buyAlertSent  = false
+var bool sellAlertSent = false
+if ta.change(time("15")) != 0
+    buyAlertSent  := false
+    sellAlertSent := false
+
+// Combined buy = breakout buy OR failed breakout buy
+anyBuy  = buySignal or failedBuy
+anySell = sellSignal or failedShort
+
+buyType  = buySignal ? "Breakout" : "Failed Short"
+sellType = sellSignal ? "Breakout" : "Failed Long"
+buyTch   = buySignal ? bTouches : sTouches
+sellTch  = sellSignal ? sTouches : bTouches
+
+buyMsg = "BUY " + syminfo.ticker +
+     " (" + buyType + ")" +
+     " | RSI: " + str.tostring(rsi15, "#.#") +
+     " | Touches: " + str.tostring(buyTch)
+sellMsg = "SELL " + syminfo.ticker +
+     " (" + sellType + ")" +
+     " | RSI: " + str.tostring(rsi15, "#.#") +
+     " | Touches: " + str.tostring(sellTch)
+
+if anyBuy and not buyAlertSent
+    alert(buyMsg, alert.freq_once_per_bar)
+    buyAlertSent := true
+if anySell and not sellAlertSent
+    alert(sellMsg, alert.freq_once_per_bar)
+    sellAlertSent := true
+
+alertcondition(anyBuy, "BUY Signal",
+     "RSI Trendline Scalp — BUY")
+alertcondition(anySell, "SELL Signal",
+     "RSI Trendline Scalp — SELL")
+
+// ============================================================
+// VISUALIZATION
+// ============================================================
+
+hlineUpper = hline(70, "Overbought",
+     color=color.new(#f57c00, 0), linestyle=hline.style_dashed)
+hlineLower = hline(30, "Oversold",
+     color=color.new(#4caf50, 0), linestyle=hline.style_dashed)
+fill(hlineUpper, hlineLower, color=color.new(#009688, 92))
+hline(50, "Midline",
+     color=color.new(#787b86, 50), linestyle=hline.style_dotted)
+
+rsiPlot = plot(rsi15, "RSI (15m)", color=color.new(#009688, 0),
+     linewidth=1)
+plot(rsiMa15, "RSI MA (15m)", color=color.new(#80CBC4, 0),
+     linewidth=1)
+
+// Both trendlines
+plot(bTLCur, "Buy Trendline (desc)",
+     color=color.new(#4caf50, 30), linewidth=2,
+     style=plot.style_line)
+plot(sTLCur, "Sell Trendline (asc)",
+     color=color.new(#ff5252, 30), linewidth=2,
+     style=plot.style_line)
+
+obLine = plot(70, "OB Line",
+     color=color.new(#000000, 100), display=display.none)
+osLine = plot(30, "OS Line",
+     color=color.new(#000000, 100), display=display.none)
+
+fill(rsiPlot, obLine,
+     color=rsi15 > 70 ? color.new(#4caf50, 80) : na)
+fill(rsiPlot, osLine,
+     color=rsi15 < 30 ? color.new(#ff5252, 80) : na)
+
+// Signal markers
+plotshape(buySignal, "BUY",
+     shape.triangleup, location.bottom,
+     color=color.green, size=size.tiny)
+plotshape(sellSignal, "SELL",
+     shape.triangledown, location.top,
+     color=color.red, size=size.tiny)
+plotshape(failedBuy, "BUY (Failed)",
+     shape.triangleup, location.bottom,
+     color=color.new(#2979FF, 0), size=size.tiny)
+plotshape(failedShort, "SELL (Failed)",
+     shape.triangledown, location.top,
+     color=color.new(#FF6D00, 0), size=size.tiny)
+
+// === INFO TABLE ===
+var table t = table.new(position.top_right, 2, 7,
+     bgcolor=color.new(color.black, 80))
+if barstate.islast
+    table.cell(t, 0, 0, "RSI (15m):",
+         text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 0, str.tostring(rsi15, "#.#"),
+         text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 1, "Buy TL:",
+         text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 1,
+         bActive ? str.tostring(bTLCur, "#.#") +
+         " (" + str.tostring(bTouches) + "t)" : "---",
+         text_color=bActive ? color.green : color.gray,
+         text_size=size.small)
+    table.cell(t, 0, 2, "Sell TL:",
+         text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 2,
+         sActive ? str.tostring(sTLCur, "#.#") +
+         " (" + str.tostring(sTouches) + "t)" : "---",
+         text_color=sActive ? color.red : color.gray,
+         text_size=size.small)
+    table.cell(t, 0, 3, "MACD:",
+         text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 3,
+         histRising15 ? "Rising" :
+         histFalling15 ? "Falling" : "Flat",
+         text_color=histRising15 ? color.green :
+         histFalling15 ? color.red : color.gray,
+         text_size=size.small)
+    table.cell(t, 0, 4, "Volume:",
+         text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 4,
+         volAbove15 ? "Above Avg" : "Below Avg",
+         text_color=volAbove15 ? color.green : color.orange,
+         text_size=size.small)
+    table.cell(t, 0, 5, "Buy Sigs:",
+         text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 5,
+         str.tostring(bSigCount) + "B / " +
+         str.tostring(bFailCount) + "F",
+         text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 6, "Sell Sigs:",
+         text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 6,
+         str.tostring(sSigCount) + "S / " +
+         str.tostring(sFailCount) + "F",
+         text_color=color.white, text_size=size.small)
