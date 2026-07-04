@@ -1,0 +1,422 @@
+//@version=6
+indicator("DSS Composite MTF — Crypto (Slow)",
+     overlay=false, max_bars_back=500)
+
+// =========================================================
+// DSS COMPOSITE — CRYPTO SLOW
+// Daily (20%) / 3D (50%) / Weekly (20%) / Monthly (10%)
+// Gradient color: dark green at bottom → dark red at top
+// Swing/position trades — bigger moves, fewer signals
+// =========================================================
+
+// === DSS SETTINGS ===
+grpDSS    = "DSS Bressert"
+dssLength = input.int(10, "DSS Stochastic Period",
+     group=grpDSS, minval=2, maxval=50,
+     tooltip="10 for slow crypto — same as stocks, " +
+     "higher TFs smooth out noise already")
+dssSmooth = input.int(5, "DSS EMA Smoothing",
+     group=grpDSS, minval=2, maxval=50)
+
+// === WEIGHTS ===
+grpW  = "Timeframe Weights"
+wt1d  = input.float(20, "Daily Weight %",
+     group=grpW, minval=0, maxval=100, step=5,
+     tooltip="Speed layer — earliest turn signal")
+wt3d  = input.float(40, "3-Day Weight %",
+     group=grpW, minval=0, maxval=100, step=5,
+     tooltip="Anchor — primary signal timeframe")
+wt1w  = input.float(25, "Weekly Weight %",
+     group=grpW, minval=0, maxval=100, step=5,
+     tooltip="Trend confirmation")
+wt1m  = input.float(15, "Monthly Weight %",
+     group=grpW, minval=0, maxval=100, step=5,
+     tooltip="Big picture regime — keeps you on " +
+     "right side of macro trend")
+
+// === VISUAL LEVELS ===
+grpSig    = "Signal Zones"
+obLevel   = input.float(80, "Overbought Line",
+     group=grpSig, minval=60, maxval=95, step=1)
+osLevel   = input.float(20, "Oversold Line",
+     group=grpSig, minval=5,  maxval=40, step=1)
+sigSmooth = input.int(5, "Signal Line EMA",
+     group=grpSig, minval=2, maxval=15)
+compSmooth = input.int(5, "Composite EMA Smooth",
+     group=grpSig, minval=1, maxval=20,
+     tooltip="Smooths the composite line itself — " +
+     "removes staircase from higher TF data")
+
+// === SIGNAL MODE ===
+grpTrig     = "Signal Settings"
+useMode     = input.string("Pivot", "Signal Mode",
+     options=["Pivot", "Crossover"],
+     group=grpTrig,
+     tooltip="Pivot = buy/sell at every confirmed " +
+     "bottom/top. Crossover = buy/sell on signal " +
+     "line cross.")
+buyZone     = input.float(40, "Buy Zone — below",
+     group=grpTrig, minval=5, maxval=50, step=5,
+     tooltip="40 for slow — higher TFs need more " +
+     "room to dip before signaling")
+sellZone    = input.float(60, "Sell Zone — above",
+     group=grpTrig, minval=50, maxval=95, step=5,
+     tooltip="60 for slow — same logic, wider zone")
+pivotLen    = input.int(3, "Pivot Bars (Pivot mode)",
+     group=grpTrig, minval=1, maxval=10,
+     tooltip="Bars before/after to confirm a pivot")
+
+// === MACD CONFIRMATION ===
+grpMACD       = "MACD Confirmation"
+useMacdFilter = input(true, "Use MACD Confirmation",
+     group=grpMACD)
+macdFast      = input(12, "Fast Length",   group=grpMACD)
+macdSlow      = input(26, "Slow Length",   group=grpMACD)
+macdSignalLen = input(9,  "Signal Length", group=grpMACD)
+
+// === VOLUME CONFIRMATION ===
+grpVol          = "Volume Confirmation"
+useVolumeFilter = input(true, "Use Volume Confirmation",
+     group=grpVol)
+volumeLength    = input(20, "Volume MA Length",
+     group=grpVol)
+volumeThreshold = input.float(0.7,
+     "Threshold (x Average)",
+     group=grpVol, minval=0.3, maxval=3.0, step=0.1,
+     tooltip="0.7 for crypto — 24/7 volume spikier")
+
+
+// =========================================================
+// === DSS BRESSERT FUNCTION ===
+dss_bressert(float src, int stochLen,
+     int emaLen) =>
+    hh      = ta.highest(src, stochLen)
+    ll      = ta.lowest(src,  stochLen)
+    raw1    = hh != ll ?
+         (src - ll) / (hh - ll) * 100 : 50.0
+    smooth1 = ta.ema(raw1, emaLen)
+    hh2     = ta.highest(smooth1, stochLen)
+    ll2     = ta.lowest(smooth1,  stochLen)
+    raw2    = hh2 != ll2 ?
+         (smooth1 - ll2) / (hh2 - ll2) * 100 : 50.0
+    ta.ema(raw2, emaLen)
+
+
+// =========================================================
+// === PULL DSS FOR EACH TIMEFRAME ===
+dss1d = request.security(syminfo.tickerid, "D",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_on)
+
+dss3d = request.security(syminfo.tickerid, "3D",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_on)
+
+dss1w = request.security(syminfo.tickerid, "W",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_on)
+
+dss1m = request.security(syminfo.tickerid, "M",
+     dss_bressert(close, dssLength, dssSmooth),
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_on)
+
+
+// =========================================================
+// === COMPOSITE SCORE ===
+totalW       = wt1d + wt3d + wt1w + wt1m
+compositeRaw = totalW > 0 ?
+     (dss1d * wt1d + dss3d * wt3d +
+     dss1w * wt1w + dss1m * wt1m) / totalW
+     : 50.0
+composite    = ta.ema(compositeRaw, compSmooth)
+sigLine      = ta.ema(composite, sigSmooth)
+
+
+// =========================================================
+// === GRADIENT COLOR (3-stop) ===
+// 0    = dark green (#006400)
+// 50   = pale gray (#999999) — neutral, faded
+// 100  = bright red (#FF1744)
+gradientCol = composite <= 50 ?
+     color.from_gradient(composite, 0, 50,
+     color.new(#00E676, 0),
+     color.new(#999999, 0)) :
+     color.from_gradient(composite, 50, 100,
+     color.new(#999999, 0),
+     color.new(#FF1744, 0))
+
+gradientSig = composite <= 50 ?
+     color.from_gradient(composite, 0, 50,
+     color.new(#00E676, 55),
+     color.new(#999999, 55)) :
+     color.from_gradient(composite, 50, 100,
+     color.new(#999999, 55),
+     color.new(#FF1744, 55))
+
+gradientFill = composite <= 50 ?
+     color.from_gradient(composite, 0, 50,
+     color.new(#00E676, 82),
+     color.new(#999999, 82)) :
+     color.from_gradient(composite, 50, 100,
+     color.new(#999999, 82),
+     color.new(#FF1744, 82))
+
+
+// =========================================================
+// === MACD + VOLUME ===
+[macdLine, macdSigLine, histLine] = ta.macd(close,
+     macdFast, macdSlow, macdSignalLen)
+histRising  = histLine > histLine[1]
+     and histLine[1] > histLine[2]
+histFalling = histLine < histLine[1]
+     and histLine[1] < histLine[2]
+
+volumeMA       = ta.sma(volume, volumeLength)
+volumeAboveAvg = volume >= volumeMA * volumeThreshold
+volumeOk       = not useVolumeFilter or volumeAboveAvg
+
+
+// =========================================================
+// === SIGNALS ===
+
+// --- Pivot mode ---
+pivLow  = ta.pivotlow(composite, pivotLen, pivotLen)
+pivHigh = ta.pivothigh(composite, pivotLen, pivotLen)
+pivBuy  = not na(pivLow) and pivLow < buyZone
+pivSell = not na(pivHigh) and pivHigh > sellZone
+
+// --- Crossover mode ---
+var bool buyArmed  = false
+var bool sellArmed = false
+if composite < buyZone
+    buyArmed := true
+if composite > sellZone
+    sellArmed := true
+xBuy  = ta.crossover(composite, sigLine)
+     and buyArmed
+xSell = ta.crossunder(composite, sigLine)
+     and sellArmed
+if xBuy
+    buyArmed := false
+if xSell
+    sellArmed := false
+
+// --- Select mode + confirmation gates ---
+macdBuyOk  = not useMacdFilter or histRising
+macdSellOk = not useMacdFilter or histFalling
+
+rawBuy  = useMode == "Pivot" ? pivBuy : xBuy
+rawSell = useMode == "Pivot" ? pivSell : xSell
+
+buyOk  = rawBuy  and macdBuyOk  and volumeOk
+sellOk = rawSell and macdSellOk and volumeOk
+
+
+// =========================================================
+// === VISUALIZATION ===
+hline(obLevel, "OB", color=color.new(#FF1744, 50),
+     linestyle=hline.style_dashed)
+hline(50,      "Mid", color=color.new(#666666, 60),
+     linestyle=hline.style_dotted)
+hline(osLevel, "OS", color=color.new(#00E676, 50),
+     linestyle=hline.style_dashed)
+
+pComp = plot(composite, "Composite",
+     color=gradientCol, linewidth=3)
+pSig  = plot(sigLine, "Signal",
+     color=gradientSig, linewidth=1)
+
+fill(pComp, pSig, color=gradientFill)
+
+plotshape(buyOk,  "BUY",  shape.triangleup,
+     location.bottom, color=color.green,
+     size=size.tiny)
+plotshape(sellOk, "SELL", shape.triangledown,
+     location.top,    color=color.red,
+     size=size.tiny)
+
+
+// =========================================================
+// === INFO TABLE ===
+var table t = table.new(position.top_right, 3, 8,
+     bgcolor=color.new(#1A1A2E, 0),
+     border_color=color.new(#444444, 0),
+     border_width=1)
+
+zoneLabel(float val) =>
+    val > obLevel ? "OB" :
+     val < osLevel ? "OS" :
+     val > 65 ? "HIGH" :
+     val < 35 ? "LOW" : "—"
+
+zoneColor(float val) =>
+    val > obLevel ? color.new(#FF1744, 0) :
+     val < osLevel ? color.new(#00E676, 0) :
+     color.new(#888888, 0)
+
+zoneBg(float val) =>
+    val > obLevel ? color.new(#FF1744, 60) :
+     val > 65 ? color.new(#FF9800, 75) :
+     val < osLevel ? color.new(#00E676, 60) :
+     val < 35 ? color.new(#00BCD4, 75) :
+     color.new(#333333, 50)
+
+if barstate.islast
+    // Header
+    table.cell(t, 0, 0, "TF",
+         text_color=color.new(#00BCD4, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 1, 0, "DSS",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 2, 0, "Zone",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+
+    // Daily
+    table.cell(t, 0, 1, " D  " +
+         str.tostring(wt1d, "#") + "%",
+         text_color=color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 1,
+         str.tostring(dss1d, "#.#"),
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss1d))
+    table.cell(t, 2, 1, zoneLabel(dss1d),
+         text_color=zoneColor(dss1d),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // 3D
+    table.cell(t, 0, 2, " 3D " +
+         str.tostring(wt3d, "#") + "%",
+         text_color=color.new(#FFD700, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 2,
+         str.tostring(dss3d, "#.#"),
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss3d))
+    table.cell(t, 2, 2, zoneLabel(dss3d),
+         text_color=zoneColor(dss3d),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // Weekly
+    table.cell(t, 0, 3, " W  " +
+         str.tostring(wt1w, "#") + "%",
+         text_color=color.new(#BB86FC, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 3,
+         str.tostring(dss1w, "#.#"),
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss1w))
+    table.cell(t, 2, 3, zoneLabel(dss1w),
+         text_color=zoneColor(dss1w),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // Monthly
+    table.cell(t, 0, 4, " M  " +
+         str.tostring(wt1m, "#") + "%",
+         text_color=color.new(#FF6D00, 0),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+    table.cell(t, 1, 4,
+         str.tostring(dss1m, "#.#"),
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(dss1m))
+    table.cell(t, 2, 4, zoneLabel(dss1m),
+         text_color=zoneColor(dss1m),
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+    // Composite
+    table.cell(t, 0, 5, " COMP ",
+         text_color=color.new(#00BCD4, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 1, 5,
+         str.tostring(composite, "#.#"),
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=zoneBg(composite))
+    table.cell(t, 2, 5, zoneLabel(composite),
+         text_color=zoneColor(composite),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+
+    // Separator
+    table.cell(t, 0, 6, "",
+         bgcolor=color.new(#444444, 0),
+         text_size=size.tiny)
+    table.cell(t, 1, 6, "",
+         bgcolor=color.new(#444444, 0),
+         text_size=size.tiny)
+    table.cell(t, 2, 6, "",
+         bgcolor=color.new(#444444, 0),
+         text_size=size.tiny)
+
+    // MACD + Volume status
+    table.cell(t, 0, 7,
+         histRising ? "MACD ▲" :
+         histFalling ? "MACD ▼" : "MACD —",
+         text_color=histRising ?
+              color.new(#00E676, 0) :
+              histFalling ?
+              color.new(#FF1744, 0) :
+              color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 1, 7,
+         volumeAboveAvg ? "VOL ✓" : "VOL ✗",
+         text_color=volumeAboveAvg ?
+              color.new(#00E676, 0) :
+              color.new(#888888, 0),
+         text_size=size.small,
+         bgcolor=color.new(#0F0F1A, 0))
+    table.cell(t, 2, 7, "",
+         text_size=size.small,
+         bgcolor=color.new(#1A1A2E, 0))
+
+
+// =========================================================
+// === ALERTS ===
+alertcondition(buyOk, "Composite BUY",
+     '{"signal":"buy","symbol":"{{ticker}}",' +
+     '"composite":"DSS_MTF_CRYPTO_SLOW"}')
+alertcondition(sellOk, "Composite SELL",
+     '{"signal":"sell","symbol":"{{ticker}}",' +
+     '"composite":"DSS_MTF_CRYPTO_SLOW"}')
+alertcondition(buyOk or sellOk, "Any Signal",
+     '{"signal":"{{ticker}}",' +
+     '"composite":"DSS_MTF_CRYPTO_SLOW"}')
+
+if buyOk and barstate.isconfirmed
+    alert('{"signal":"buy","symbol":"' +
+         syminfo.ticker +
+         '","composite":"DSS_MTF_CRYPTO_SLOW",' +
+         '"comp_val":' +
+         str.tostring(composite, "#.##") + '}',
+         alert.freq_once_per_bar)
+
+if sellOk and barstate.isconfirmed
+    alert('{"signal":"sell","symbol":"' +
+         syminfo.ticker +
+         '","composite":"DSS_MTF_CRYPTO_SLOW",' +
+         '"comp_val":' +
+         str.tostring(composite, "#.##") + '}',
+         alert.freq_once_per_bar)
