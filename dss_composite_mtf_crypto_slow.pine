@@ -138,31 +138,31 @@ sigLine      = ta.ema(composite, sigSmooth)
 
 // =========================================================
 // === GRADIENT COLOR (3-stop) ===
-// 0    = dark green (#006400)
-// 50   = pale gray (#999999) — neutral, faded
+// 0    = green (#00E676)
+// 50   = gold (#FFD700) — matches stock DSS
 // 100  = bright red (#FF1744)
 gradientCol = composite <= 50 ?
      color.from_gradient(composite, 0, 50,
      color.new(#00E676, 0),
-     color.new(#999999, 0)) :
+     color.new(#FFD700, 0)) :
      color.from_gradient(composite, 50, 100,
-     color.new(#999999, 0),
+     color.new(#FFD700, 0),
      color.new(#FF1744, 0))
 
 gradientSig = composite <= 50 ?
      color.from_gradient(composite, 0, 50,
      color.new(#00E676, 55),
-     color.new(#999999, 55)) :
+     color.new(#FFD700, 55)) :
      color.from_gradient(composite, 50, 100,
-     color.new(#999999, 55),
+     color.new(#FFD700, 55),
      color.new(#FF1744, 55))
 
 gradientFill = composite <= 50 ?
      color.from_gradient(composite, 0, 50,
      color.new(#00E676, 82),
-     color.new(#999999, 82)) :
+     color.new(#FFD700, 82)) :
      color.from_gradient(composite, 50, 100,
-     color.new(#999999, 82),
+     color.new(#FFD700, 82),
      color.new(#FF1744, 82))
 
 
